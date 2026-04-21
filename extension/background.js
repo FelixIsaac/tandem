@@ -3,6 +3,49 @@
 
 const NATIVE_HOST_NAME = "com.opencode.browser_automation";
 
+// ============================================================================
+// URL Security Blocklist
+// ============================================================================
+
+const DEFAULT_BLOCKED_PATTERNS = [
+  // Banking / finance
+  /bank/i, /paypal\.com/i, /stripe\.com/i, /wise\.com/i, /revolut\.com/i,
+  /chase\.com/i, /wellsfargo\.com/i, /barclays\.com/i, /hsbc\.com/i,
+  // Email
+  /mail\.google\.com/i, /outlook\.live\.com/i, /outlook\.office\.com/i,
+  /mail\.yahoo\.com/i, /proton\.me/i, /fastmail\.com/i,
+  // OAuth / identity providers
+  /accounts\.google\.com/i, /login\.microsoftonline\.com/i,
+  /appleid\.apple\.com/i, /github\.com\/login/i, /github\.com\/session/i,
+  // Password managers
+  /1password\.com/i, /lastpass\.com/i, /bitwarden\.com/i, /dashlane\.com/i,
+  // Crypto
+  /coinbase\.com/i, /binance\.com/i, /kraken\.com/i,
+];
+
+async function getBlockedPatterns() {
+  const { customBlocklist = [] } = await chrome.storage.local.get("customBlocklist");
+  return [...DEFAULT_BLOCKED_PATTERNS, ...customBlocklist.map(p => new RegExp(p, "i"))];
+}
+
+async function assertUrlAllowed(url) {
+  if (!url) return;
+  const patterns = await getBlockedPatterns();
+  for (const pattern of patterns) {
+    if (pattern.test(url)) {
+      throw new Error(
+        `Blocked: tool refused on sensitive URL (${url}). ` +
+        "Close or switch away from this tab, or remove it from the blocklist."
+      );
+    }
+  }
+}
+
+async function assertTabAllowed(tabId) {
+  const tab = tabId ? await chrome.tabs.get(tabId) : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  if (tab?.url) await assertUrlAllowed(tab.url);
+}
+
 let nativePort = null;
 let isConnected = false;
 
@@ -105,8 +148,14 @@ function sendToNative(message) {
 
 async function handleToolRequest(request) {
   const { id, tool, args } = request;
-  
+
   try {
+    // Block tools that touch tab content if the target URL is sensitive
+    const tablessTools = new Set(["get_tabs", "wait"]);
+    if (!tablessTools.has(tool)) {
+      await assertTabAllowed(args?.tabId ?? null);
+    }
+
     const result = await executeTool(tool, args || {});
     sendToNative({
       type: "tool_response",
@@ -166,6 +215,7 @@ async function getTabById(tabId) {
 
 async function toolNavigate({ url, tabId }) {
   if (!url) throw new Error("URL is required");
+  await assertUrlAllowed(url);
   
   const tab = await getTabById(tabId);
   await chrome.tabs.update(tab.id, { url });
@@ -446,6 +496,17 @@ chrome.action.onClicked.addListener(async () => {
       title: "OpenCode Browser",
       message: "Already connected"
     });
+  }
+});
+
+// Keepalive: prevent service worker from going dormant (which kills the native host)
+chrome.alarms.create("opencode-keepalive", { periodInMinutes: 0.25 });
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== "opencode-keepalive") return;
+  if (!isConnected) {
+    await connectToNativeHost();
+  } else if (nativePort) {
+    try { nativePort.postMessage({ type: "ping" }); } catch {}
   }
 });
 
