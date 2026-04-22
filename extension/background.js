@@ -461,14 +461,24 @@ async function toolGetTabs() {
 
 async function toolExecuteScript({ code, tabId }) {
   if (!code) throw new Error("Code is required");
-  
+
   const tab = await getTabById(tabId);
-  
+
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: new Function(code)
+    world: "MAIN",
+    func: (codeStr) => {
+      try {
+        // USER_SCRIPT world has unsafe-eval enabled via configureWorld — page CSP doesn't apply
+        // eslint-disable-next-line no-eval
+        return (0, eval)(codeStr);
+      } catch (e) {
+        return { __error: e.message };
+      }
+    },
+    args: [code]
   });
-  
+
   return JSON.stringify(result[0]?.result);
 }
 
