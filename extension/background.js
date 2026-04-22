@@ -514,9 +514,15 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 });
 
 async function getOrCreateAgentWindow() {
-  // Fast path: in-memory hit skips mutex
+  // Fast path: verify in-memory ID is still tracked in session storage.
+  // If session was cleared externally, agentWindowIds will be empty and we fall through to create.
   if (agentWindowId !== null) {
-    try { await chrome.windows.get(agentWindowId); return agentWindowId; } catch { agentWindowId = null; agentGroupId = null; }
+    const { agentWindowIds = [] } = await chrome.storage.session.get("agentWindowIds").catch(() => ({}));
+    if (agentWindowIds.includes(agentWindowId)) {
+      try { await chrome.windows.get(agentWindowId); return agentWindowId; } catch {}
+    }
+    agentWindowId = null;
+    agentGroupId = null;
   }
   // Mutex: deduplicates concurrent window-creation calls
   if (agentWindowCreationPromise) return agentWindowCreationPromise;
