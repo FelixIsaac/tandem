@@ -1,17 +1,14 @@
 # OpenCode Browser
 
-Browser automation for [OpenCode](https://github.com/opencode-ai/opencode) via Chrome extension + Native Messaging.
+Browser automation for AI agents via Chrome extension + Native Messaging. Works with [OpenCode](https://github.com/opencode-ai/opencode), [Claude Code](https://claude.ai/code), and any MCP-compatible agent.
 
-**Inspired by Claude in Chrome** - Anthropic's browser extension that lets Claude Code test code directly in the browser and see client-side errors via console logs. This project brings similar capabilities to OpenCode.
+**Inspired by Claude in Chrome** — automation that runs inside your existing Chrome session, sharing your logins, cookies, and bookmarks. No separate profiles, no security prompts.
 
-> "Claude in Chrome runs in a side panel that stays open as you browse, working with your existing logins and bookmarks."
-> — [@claudeai](https://twitter.com/claudeai), Dec 18, 2024
+> Agent tabs open in a dedicated **OpenCode Agent** window (cyan tab group) so your browsing is never interrupted.
 
-## Why?
+## Why not Playwright / DevTools?
 
-Chrome 136+ blocks `--remote-debugging-port` on your default profile for security reasons. This means DevTools-based automation (like Playwright or chrome-devtools-mcp) triggers a security prompt every time.
-
-OpenCode Browser bypasses this entirely using Chrome's Native Messaging API - the same approach Claude uses. Your automation works with your existing browser session, logins, and bookmarks. No prompts. No separate profiles.
+Chrome 136+ blocks `--remote-debugging-port` on your default profile. DevTools-based tools trigger a security prompt every time. This project uses Chrome's Native Messaging API — the same approach Anthropic uses for Claude in Chrome — so automation works silently against your live session.
 
 ## Installation
 
@@ -21,67 +18,108 @@ npx opencode-browser install
 
 The installer will:
 1. Copy the extension to `~/.opencode-browser/extension/`
-2. Open Chrome for you to load the extension
-3. Register the native messaging host
-4. Optionally update your `opencode.json`
+2. Open Chrome so you can load the unpacked extension
+3. Register the native messaging host (registry on Windows, NativeMessagingHosts dir on macOS/Linux)
+4. Optionally update your `opencode.json` or `~/.claude/.mcp.json`
 
-## Manual Setup
+## Agent Setup
 
-If you prefer manual installation:
+### OpenCode
 
-1. **Load the extension**
-   - Go to `chrome://extensions`
-   - Enable "Developer mode"
-   - Click "Load unpacked" and select `~/.opencode-browser/extension/`
-   - Copy the extension ID
+Add to `opencode.json`:
+```json
+{
+  "mcp": {
+    "browser": {
+      "type": "local",
+      "command": ["node", "/path/to/opencode-browser/src/server.js"],
+      "enabled": true
+    }
+  }
+}
+```
 
-2. **Run the installer** to register the native host:
-   ```bash
-   npx opencode-browser install
-   ```
+### Claude Code (global)
 
-3. **Add to opencode.json**:
-   ```json
-   {
-     "mcp": {
-       "browser": {
-         "type": "local",
-         "command": ["npx", "opencode-browser", "start"],
-         "enabled": true
-       }
-     }
-   }
-   ```
+Create `~/.claude/.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "browser": {
+      "command": "node",
+      "args": ["/path/to/opencode-browser/src/server.js"],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+Add to `~/.claude/settings.json`:
+```json
+{
+  "enabledMcpjsonServers": ["browser"]
+}
+```
+
+### Other MCP clients
+
+Point your client at `src/server.js` as a stdio MCP server. No other configuration needed.
 
 ## Available Tools
 
 | Tool | Description |
 |------|-------------|
+| `browser_snapshot` | **Start here.** Accessibility tree with CSS selectors — low token cost |
+| `browser_screenshot` | Visual capture — use only when layout matters |
 | `browser_navigate` | Navigate to a URL |
 | `browser_click` | Click an element by CSS selector |
-| `browser_type` | Type text into an input field |
-| `browser_screenshot` | Capture the visible page |
-| `browser_snapshot` | Get accessibility tree with selectors |
-| `browser_get_tabs` | List all open tabs |
+| `browser_type` | Type text into an input |
+| `browser_keyboard` | Send key events (Enter, Escape, Tab, ctrl+a, …) |
+| `browser_wait_for_selector` | Wait for element to appear (essential for SPAs) |
 | `browser_scroll` | Scroll page or element into view |
-| `browser_wait` | Wait for a duration |
+| `browser_wait` | Wait for a fixed duration |
 | `browser_execute` | Run JavaScript in page context |
+| `browser_get_tabs` | List all open tabs |
+| `browser_new_tab` | Open a new tab in the agent window |
+| `browser_close_tab` | Close a tab |
+| `browser_switch_tab` | Focus a tab (use to hand off to user) |
+| `browser_new_window` | Open a new browser window |
+
+## Agent Instructions
+
+See [AGENTS.md](./AGENTS.md) for full behavioral guidance including:
+- Snapshot-first workflow (token efficiency)
+- Waiting for dynamic elements before clicking
+- Hand-off pattern for login walls / CAPTCHAs
+- Error recovery table
+- Security blocklist behavior
+
+Claude Code users: see [CLAUDE.md](./CLAUDE.md).
 
 ## Architecture
 
 ```
-OpenCode ──MCP──> server.js ──Unix Socket──> host.js ──Native Messaging──> Chrome Extension
-                                                                                  │
-                                                                                  ▼
-                                                                            chrome.tabs
-                                                                            chrome.scripting
+Agent ──MCP (stdio)──> src/server.js ──Named Pipe──> src/host.js ──Native Messaging──> extension/
+                                                                                              │
+                                                                         ┌────────────────────┤
+                                                                         ▼                    ▼
+                                                                   chrome.tabs         chrome.scripting
+                                                                   chrome.windows      chrome.tabGroups
 ```
 
-- **server.js** - MCP server that OpenCode connects to
-- **host.js** - Native messaging host launched by Chrome
-- **extension/** - Chrome extension with browser automation tools
+- **src/server.js** — MCP server; exposes tools to the agent
+- **src/host.js** — Native messaging host; bridges pipe ↔ Chrome
+- **extension/background.js** — Service worker; executes Chrome APIs
 
-No DevTools Protocol = No security prompts.
+Multiple agents (Claude Code + OpenCode) can share one browser session simultaneously.
+
+## Platform Support
+
+| Platform | Status |
+|----------|--------|
+| Windows | ✓ (named pipe, registry) |
+| macOS | ✓ |
+| Linux | ✓ |
 
 ## Uninstall
 
@@ -89,22 +127,14 @@ No DevTools Protocol = No security prompts.
 npx opencode-browser uninstall
 ```
 
-Then remove the extension from Chrome and delete `~/.opencode-browser/` if desired.
+Then remove the extension from Chrome and optionally delete `~/.opencode-browser/`.
 
 ## Logs
 
-Logs are written to `~/.opencode-browser/logs/browser-mcp-host.log`
-
-## Platform Support
-
-- macOS ✓
-- Linux ✓
-- Windows (not yet supported)
+```
+~/.opencode-browser/logs/host.log
+```
 
 ## License
 
-MIT
-
-## Credits
-
-Inspired by [Claude in Chrome](https://www.anthropic.com/news/claude-in-chrome) by Anthropic.
+MIT — forked from [benjaminshafii/opencode-browser](https://github.com/benjaminshafii/opencode-browser)
