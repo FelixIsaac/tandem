@@ -22,23 +22,27 @@
     "install-extension": "node bin/cli.js install"
   },
   "keywords": [
-    "opencode",
+    "mcp",
+    "model-context-protocol",
     "browser",
     "automation",
     "chrome",
-    "mcp",
-    "claude"
+    "ai",
+    "llm",
+    "claude",
+    "opencode",
+    "agent"
   ],
-  "author": "Benjamin Shafii",
+  "author": "Felix Lim <limfelix16@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benjaminshafii/opencode-browser.git"
+    "url": "git+https://github.com/felixisaac/opencode-browser.git"
   },
   "bugs": {
-    "url": "https://github.com/benjaminshafii/opencode-browser/issues"
+    "url": "https://github.com/felixisaac/opencode-browser/issues"
   },
-  "homepage": "https://github.com/benjaminshafii/opencode-browser#readme",
+  "homepage": "https://github.com/felixisaac/opencode-browser#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "~1.29.0"
   }
