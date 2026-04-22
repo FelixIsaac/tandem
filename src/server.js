@@ -165,7 +165,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "browser_navigate",
-        description: "Navigate to a URL in the browser",
+        description: "Navigate to a URL in the browser. After navigating, call browser_wait_for_selector or browser_snapshot before interacting with elements.",
         inputSchema: {
           type: "object",
           properties: {
@@ -183,7 +183,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_click",
-        description: "Click an element on the page using a CSS selector",
+        description: "Click an element on the page using a CSS selector. On SPAs or dynamic pages, call browser_wait_for_selector first to avoid silent failures.",
         inputSchema: {
           type: "object",
           properties: {
@@ -227,7 +227,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_screenshot",
-        description: "Take a screenshot of the current page",
+        description: "Take a screenshot of the current page. High token cost (500-3000 tokens). Prefer browser_snapshot unless you need visual layout.",
         inputSchema: {
           type: "object",
           properties: {
@@ -244,7 +244,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_snapshot",
-        description: "Get an accessibility tree snapshot of the page. Returns interactive elements with selectors.",
+        description: "Get an accessibility tree snapshot of the page. Returns interactive elements with CSS selectors. Start here — much cheaper than browser_screenshot (200-1500 tokens). Use this to find selectors before clicking or typing.",
         inputSchema: {
           type: "object",
           properties: {
@@ -321,7 +321,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_new_tab",
-        description: "Open a new browser tab",
+        description: "Open a new browser tab in the agent's dedicated window. Does not affect the user's current tab or window.",
         inputSchema: {
           type: "object",
           properties: {
@@ -351,7 +351,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_switch_tab",
-        description: "Switch focus to a specific tab",
+        description: "Switch focus to a specific tab, bringing it to the user's view. Use for hand-off when the user needs to take over (login wall, CAPTCHA, manual review). Always tell the user before calling this.",
         inputSchema: {
           type: "object",
           properties: {
@@ -376,7 +376,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_wait_for_selector",
-        description: "Wait until a CSS selector appears in the DOM (useful for SPAs and dynamic pages)",
+        description: "Wait until a CSS selector appears in the DOM. Always call this after browser_navigate and before browser_click on SPAs or pages with dynamic content. Prevents 'element not found' errors.",
         inputSchema: {
           type: "object",
           properties: {
@@ -389,7 +389,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "browser_keyboard",
-        description: "Send a keyboard event to a tab (e.g. Enter, Escape, Tab, ctrl+a)",
+        description: "Send a keyboard event to a tab. Use Enter for form submission (more reliable than clicking submit), ctrl+a to select all text before overwriting, Tab to move between fields, Escape to dismiss dialogs.",
         inputSchema: {
           type: "object",
           properties: {
