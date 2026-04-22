@@ -475,27 +475,30 @@ async function toolExecuteScript({ code, tabId }) {
   if (!code) throw new Error("Code is required");
 
   const tab = await getTabById(tabId);
+  const target = { tabId: tab.id };
 
-  const result = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    world: "ISOLATED",
-    func: (codeStr) => {
-      try {
-        // isolated_world CSP in manifest allows unsafe-eval here; page CSP doesn't apply
-        // eslint-disable-next-line no-eval
-        return (0, eval)(codeStr);
-      } catch (e) {
-        return { __error: e.message };
-      }
-    },
-    args: [code]
-  });
+  await new Promise((resolve, reject) =>
+    chrome.debugger.attach(target, "1.3", () =>
+      chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve()
+    )
+  );
 
-  const r = result[0]?.result;
-  if (r !== null && typeof r === "object" && "__error" in r) {
-    throw new Error(`Script error: ${r.__error}. Check your code syntax and ensure the target elements exist.`);
+  try {
+    const res = await new Promise((resolve, reject) =>
+      chrome.debugger.sendCommand(target, "Runtime.evaluate", { expression: code, returnByValue: true }, (r) =>
+        chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(r)
+      )
+    );
+
+    if (res.exceptionDetails) {
+      const msg = res.exceptionDetails.exception?.description || res.exceptionDetails.text;
+      throw new Error(`Script error: ${msg}`);
+    }
+
+    return JSON.stringify(res.result?.value ?? null);
+  } finally {
+    await new Promise(resolve => chrome.debugger.detach(target, resolve));
   }
-  return JSON.stringify(r);
 }
 
 async function toolScroll({ x = 0, y = 0, selector, tabId }) {

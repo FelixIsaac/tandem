@@ -12,7 +12,8 @@
     "notifications",
     "alarms",
     "windows",
-    "tabGroups"
+    "tabGroups",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>"
