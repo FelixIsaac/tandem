@@ -65,6 +65,10 @@ process.stdin.on("data", (chunk) => {
   stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   while (stdinBuffer.length >= 4) {
     const len = stdinBuffer.readUInt32LE(0);
+    if (len > 1_048_576) {
+      log(`Oversized message (${len} bytes) — Chrome native messaging cap is 1MB. Exiting.`);
+      process.exit(1);
+    }
     if (stdinBuffer.length < 4 + len) break;
     const body = stdinBuffer.subarray(4, 4 + len);
     stdinBuffer = stdinBuffer.subarray(4 + len);
@@ -108,11 +112,7 @@ function writeMessage(message) {
   lengthBuffer.writeUInt32LE(buffer.length, 0);
 
   // LIMIT: Chrome native messaging max message size = 1MB in each direction.
-  // WARNING: two separate write() calls are not atomic — if two async paths call
-  // writeMessage() in the same event loop tick, bytes can interleave and corrupt
-  // Chrome's length-prefixed framing. Node's single-threaded model makes this
-  // unlikely but not impossible. Fix: Buffer.concat both and issue one write(),
-  // or use a write queue (see parallel tool call notes).
+  // Single write() with Buffer.concat keeps the length prefix and body atomic.
   process.stdout.write(Buffer.concat([lengthBuffer, buffer]));
 }
 
