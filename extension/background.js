@@ -466,10 +466,10 @@ async function toolExecuteScript({ code, tabId }) {
 
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    world: "MAIN",
+    world: "ISOLATED",
     func: (codeStr) => {
       try {
-        // USER_SCRIPT world has unsafe-eval enabled via configureWorld — page CSP doesn't apply
+        // isolated_world CSP in manifest allows unsafe-eval here; page CSP doesn't apply
         // eslint-disable-next-line no-eval
         return (0, eval)(codeStr);
       } catch (e) {
