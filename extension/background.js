@@ -568,15 +568,20 @@ async function getOrCreateAgentGroup(tabId) {
       agentGroupId = null;
     }
   }
-  const groupId = await chrome.tabs.group({ tabIds: [tabId] });
   try {
-    await chrome.tabGroups.update(groupId, { title: "OpenCode Agent", color: "cyan" });
-  } catch {}
-  agentGroupId = groupId;
-  return groupId;
+    const groupId = await chrome.tabs.group({ tabIds: [tabId] });
+    try {
+      await chrome.tabGroups.update(groupId, { title: "OpenCode Agent", color: "cyan" });
+    } catch {}
+    agentGroupId = groupId;
+    return groupId;
+  } catch {
+    // Tab groups not supported in this window type — non-fatal
+    return null;
+  }
 }
 
-async function toolNewTab({ url, active = true }) {
+async function toolNewTab({ url, active = false }) {
   if (url) await assertUrlAllowed(url);
   const windowId = await getOrCreateAgentWindow();
   // Single query — avoids race between two separate queries
@@ -591,7 +596,7 @@ async function toolNewTab({ url, active = true }) {
   try {
     if (url) await waitForTabLoad(tab.id);
   } finally {
-    await getOrCreateAgentGroup(tab.id);
+    await getOrCreateAgentGroup(tab.id).catch(() => {});
   }
   const updated = await chrome.tabs.get(tab.id);
   return JSON.stringify({ tabId: updated.id, url: updated.url, windowId: updated.windowId });
