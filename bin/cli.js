@@ -72,7 +72,7 @@ async function confirm(question) {
 async function main() {
   console.log(`
 ${color("cyan", color("bright", "╔═══════════════════════════════════════════════════════════╗"))}
-${color("cyan", color("bright", "║"))}        ${color("bright", "OpenCode Browser")} - Browser Automation for OpenCode       ${color("cyan", color("bright", "║"))}
+${color("cyan", color("bright", "║"))}      ${color("bright", "OpenCode Browser")} - Browser Automation for AI Agents       ${color("cyan", color("bright", "║"))}
 ${color("cyan", color("bright", "║"))}                                                           ${color("cyan", color("bright", "║"))}
 ${color("cyan", color("bright", "║"))}  Inspired by Claude in Chrome - browser automation that   ${color("cyan", color("bright", "║"))}
 ${color("cyan", color("bright", "║"))}  works with your existing logins and bookmarks.           ${color("cyan", color("bright", "║"))}
@@ -92,7 +92,7 @@ ${color("bright", "Usage:")}
   npx @felixisaac/opencode-browser uninstall   Remove native host registration
 
 ${color("bright", "After installation:")}
-  The MCP server starts automatically when OpenCode connects.
+  Configure your agent to run: node ~/.opencode-browser/server.js
 `);
   }
 
@@ -229,21 +229,31 @@ To load the extension:
   const logsDir = join(homedir(), ".opencode-browser", "logs");
   mkdirSync(logsDir, { recursive: true });
 
-  header("Step 5: Configure OpenCode");
+  // Copy server.js and host.js to ~/.opencode-browser/ so agents can reference a stable path
+  const installedServerPath = join(wrapperDir, "server.js");
+  const installedHostPath = join(wrapperDir, "host.js");
+  copyFileSync(join(PACKAGE_ROOT, "src", "server.js"), installedServerPath);
+  copyFileSync(join(PACKAGE_ROOT, "src", "host.js"), installedHostPath);
+  success(`Server installed at: ${installedServerPath}`);
 
-  const serverPath = join(PACKAGE_ROOT, "src", "server.js");
+  header("Step 5: Configure Your Agent");
+
   const mcpConfig = {
     browser: {
       type: "local",
-      command: ["node", serverPath],
+      command: ["node", installedServerPath],
       enabled: true,
     },
   };
 
   log(`
-Add this to your ${color("cyan", "opencode.json")} under "mcp":
+${color("bright", "Claude Code (global):")}
+  claude mcp add -s user browser -- node ${installedServerPath}
 
+${color("bright", "OpenCode")} — add to opencode.json under "mcp":
 ${color("bright", JSON.stringify(mcpConfig, null, 2))}
+
+${color("bright", "Other agents")} — use: node ${installedServerPath}
 `);
 
   const opencodeJsonPath = join(process.cwd(), "opencode.json");
@@ -251,7 +261,7 @@ ${color("bright", JSON.stringify(mcpConfig, null, 2))}
 
   if (existsSync(opencodeJsonPath)) {
     shouldUpdateConfig = await confirm(`Found opencode.json in current directory. Add browser config automatically?`);
-    
+
     if (shouldUpdateConfig) {
       try {
         const config = JSON.parse(readFileSync(opencodeJsonPath, "utf-8"));
@@ -266,31 +276,38 @@ ${color("bright", JSON.stringify(mcpConfig, null, 2))}
     }
   } else {
     log(`No opencode.json found in current directory.`);
-    log(`Add the config above to your project's opencode.json manually.`);
+    log(`Add the config above to your agent's config manually.`);
   }
 
   header("Installation Complete!");
 
   log(`
 ${color("green", "✓")} Extension installed at: ${extensionDir}
+${color("green", "✓")} Server installed at:    ${installedServerPath}
 ${color("green", "✓")} Native host registered
-${shouldUpdateConfig ? color("green", "✓") + " opencode.json updated" : color("yellow", "○") + " Remember to update opencode.json"}
+${shouldUpdateConfig ? color("green", "✓") + " opencode.json updated" : color("yellow", "○") + " Configure your agent (see above)"}
 
 ${color("bright", "Next steps:")}
 1. ${color("cyan", "Restart Chrome")} (close all windows and reopen)
 2. Click the extension icon to verify connection
-3. Restart OpenCode to load the new MCP server
+3. Restart your agent to load the MCP server
 
-${color("bright", "Available tools:")}
-  browser_navigate   - Go to a URL
-  browser_click      - Click an element
-  browser_type       - Type into an input
-  browser_screenshot - Capture the page
-  browser_snapshot   - Get accessibility tree
-  browser_get_tabs   - List open tabs
-  browser_scroll     - Scroll the page
-  browser_wait       - Wait for duration
-  browser_execute    - Run JavaScript
+${color("bright", "Available tools (15):")}
+  browser_snapshot         - Accessibility tree — start here
+  browser_screenshot       - Visual page capture
+  browser_navigate         - Go to a URL
+  browser_click            - Click by CSS selector
+  browser_type             - Type into an input
+  browser_keyboard         - Send key events
+  browser_wait_for_selector- Wait for element to appear
+  browser_scroll           - Scroll page or element
+  browser_wait             - Wait fixed duration
+  browser_execute          - Run JavaScript (via chrome.debugger)
+  browser_get_tabs         - List open tabs
+  browser_new_tab          - Open a new tab
+  browser_close_tab        - Close a tab
+  browser_switch_tab       - Focus a tab
+  browser_new_window       - Open a new window
 
 ${color("bright", "Logs:")} ~/.opencode-browser/logs/
 `);
@@ -333,7 +350,7 @@ Remove manually if needed:
   Windows: rmdir /s /q %USERPROFILE%\\.opencode-browser
   Unix:    rm -rf ~/.opencode-browser/
 
-Also remove the "browser" entry from your opencode.json.
+Also remove the "browser" MCP entry from your agent config.
 `);
 }
 
