@@ -83,9 +83,14 @@ function writeMessage(message) {
   const buffer = Buffer.from(json, "utf8");
   const lengthBuffer = Buffer.alloc(4);
   lengthBuffer.writeUInt32LE(buffer.length, 0);
-  
-  process.stdout.write(lengthBuffer);
-  process.stdout.write(buffer);
+
+  // LIMIT: Chrome native messaging max message size = 1MB in each direction.
+  // WARNING: two separate write() calls are not atomic — if two async paths call
+  // writeMessage() in the same event loop tick, bytes can interleave and corrupt
+  // Chrome's length-prefixed framing. Node's single-threaded model makes this
+  // unlikely but not impossible. Fix: Buffer.concat both and issue one write(),
+  // or use a write queue (see parallel tool call notes).
+  process.stdout.write(Buffer.concat([lengthBuffer, buffer]));
 }
 
 // ============================================================================
@@ -169,6 +174,10 @@ function handleMcpMessage(clientId, message) {
 
   if (message.type === "tool_request") {
     const id = ++requestId;
+    // NOTE: pendingRequests entries are only removed when Chrome sends a tool_response.
+    // If server.js times out the request (60s) and removes it from its own map, this
+    // entry is never cleaned up — it accumulates until process restart. In high-volume
+    // workloads with frequent timeouts, add a matching TTL here.
     pendingRequests.set(id, { clientId, mcpId: message.id });
     writeMessage({ type: "tool_request", id, tool: message.tool, args: message.args });
   }

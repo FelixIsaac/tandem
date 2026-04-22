@@ -24,6 +24,10 @@ const DEFAULT_BLOCKED_PATTERNS = [
 ];
 
 async function getBlockedPatterns() {
+  // PERF: chrome.storage.local.get is an async IPC call (~1-5ms each).
+  // Called on every non-tabless tool invocation. Also rebuilds RegExp objects
+  // on every call — consider caching patterns and invalidating on storage change.
+  // LIMIT: chrome.storage.local max size = 10MB total, 8KB per item.
   const { customBlocklist = [] } = await chrome.storage.local.get("customBlocklist");
   return [...DEFAULT_BLOCKED_PATTERNS, ...customBlocklist.map(p => new RegExp(p, "i"))];
 }
@@ -148,6 +152,11 @@ function sendToNative(message) {
 
 async function handleToolRequest(request) {
   const { id, tool, args } = request;
+
+  // LIMIT: Chrome MV3 service workers have a hard 5-minute lifetime per event handler.
+  // A slow toolNavigate (30s page load) inside an already-aged worker can be force-killed
+  // mid-await. The agent will hang indefinitely — no error is surfaced, no tool_response
+  // is sent. Mitigation: keepalive alarm resets idle timer but cannot extend the 5-min cap.
 
   try {
     // Block tools that touch tab content if the target URL is sensitive
@@ -310,8 +319,11 @@ async function toolType({ selector, text, tabId, clear = false }) {
 
 async function toolScreenshot({ tabId, fullPage = false }) {
   const tab = await getTabById(tabId);
-  
-  // Capture visible area
+
+  // LIMIT: captureVisibleTab captures whatever tab is currently ACTIVE in the window,
+  // not necessarily the requested tab. If tab is not focused, screenshot is wrong/silent.
+  // Throws "The window is not visible" on minimized windows — not currently handled.
+  // LIMIT: max image size ~4MB (Chrome internal cap on tab capture).
   const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
     format: "png"
   });
@@ -321,7 +333,13 @@ async function toolScreenshot({ tabId, fullPage = false }) {
 
 async function toolSnapshot({ tabId }) {
   const tab = await getTabById(tabId);
-  
+
+  // PERF: calls getComputedStyle() + getBoundingClientRect() per DOM node, forcing
+  // style recalculation and layout reflow. On a 10k-node React SPA this can freeze
+  // the tab's UI thread for 200-800ms. Runs in renderer process (not SW event loop).
+  // LIMIT: chrome.scripting.executeScript has no documented concurrency cap but
+  // consumes an IPC slot per call; heavy parallel use may hit undocumented limits.
+  // LIMIT: result capped at 500 nodes (intentional) — deep pages will be truncated.
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: () => {
@@ -415,6 +433,9 @@ async function toolSnapshot({ tabId }) {
 }
 
 async function toolGetTabs() {
+  // SCALE: 100 open tabs ≈ 15-25KB JSON ≈ 4,000-6,000 tokens per call.
+  // If called in a loop (e.g., agent polling for a new tab), costs accumulate fast.
+  // Consider filtering to a window or returning only id/url/title by default.
   const tabs = await chrome.tabs.query({});
   return JSON.stringify(tabs.map(t => ({
     id: t.id,
@@ -547,13 +568,23 @@ chrome.action.onClicked.addListener(async () => {
   }
 });
 
-// Keepalive: prevent service worker from going dormant (which kills the native host)
+// Keepalive: prevent service worker from going dormant (which kills the native host).
+// NOTE: Chrome MV3 clamps alarm intervals to a minimum of 1 minute regardless of
+// what periodInMinutes is set to — 0.25 min (15s) is silently rounded up to 1 min.
+// An open nativePort itself keeps the SW alive; this alarm only handles reconnection
+// after host crashes. For sub-minute keepalive, use an offscreen document instead.
+// LIMIT: chrome.alarms minimum interval = 1 min (MV3, Chrome 117+)
 chrome.alarms.create("opencode-keepalive", { periodInMinutes: 0.25 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "opencode-keepalive") return;
   if (!isConnected) {
+    // WARNING: no re-entrancy guard — two rapid alarm fires both seeing isConnected===false
+    // will each call connectNative(), leaking the first port and its onMessage listener.
     await connectToNativeHost();
   } else if (nativePort) {
+    // Pings are fire-and-forget; unanswered pings queue silently in the native messaging
+    // buffer (max message size 1MB per Chrome docs). No pong timeout means a hung host
+    // accumulates queued pings until the port errors and disconnects.
     try { nativePort.postMessage({ type: "ping" }); } catch {}
   }
 });

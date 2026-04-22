@@ -99,27 +99,33 @@ function handleHostMessage(message) {
 
 async function executeTool(tool, args) {
   if (!connected) {
-    // Try to reconnect
+    // WARNING: no in-flight guard — N concurrent tool calls while disconnected each
+    // call connectToHost() independently, spawning up to N*10 retry attempts all
+    // targeting the same pipe. Each successful connect overwrites the shared `socket`
+    // variable, orphaning previous connections without destroying them. Fix: share a
+    // single "connecting" Promise across callers (promise deduplication pattern).
     try {
       await connectToHost();
     } catch {
       throw new Error("Not connected to browser extension. Make sure Chrome is running with the OpenCode extension installed.");
     }
   }
-  
+
   const id = ++requestId;
-  
+
   return new Promise((resolve, reject) => {
     pendingRequests.set(id, { resolve, reject });
-    
+
     socket.write(JSON.stringify({
       type: "tool_request",
       id,
       tool,
       args
     }) + "\n");
-    
-    // Timeout after 60 seconds
+
+    // LIMIT: 60s timeout. Note: host.js does NOT have a matching timeout — if this
+    // rejects and removes the entry here, the host still holds the pendingRequests
+    // entry and will attempt to send a response to a now-dead Promise handler.
     setTimeout(() => {
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
