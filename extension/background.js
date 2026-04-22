@@ -47,8 +47,8 @@ async function assertUrlAllowed(url) {
   for (const pattern of patterns) {
     if (pattern.test(url)) {
       throw new Error(
-        `Blocked: tool refused on sensitive URL (${url}). ` +
-        "Close or switch away from this tab, or remove it from the blocklist."
+        `Blocked: "${url}" is on the security blocklist (banking, email, OAuth, crypto). ` +
+        "Do not retry on this URL. Switch to a different tab or ask the user to perform this action manually."
       );
     }
   }
@@ -216,7 +216,7 @@ async function executeTool(toolName, args) {
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) throw new Error("No active tab found");
+  if (!tab?.id) throw new Error("No active tab found. Call browser_new_tab to open a tab first.");
   return tab;
 }
 
@@ -248,7 +248,7 @@ async function toolNavigate({ url, tabId }) {
   // Re-check after load: server-side redirects can land on a blocked domain
   const final = await chrome.tabs.get(tab.id);
   await assertUrlAllowed(final.url);
-  return `Navigated to ${final.url}`;
+  return `Navigated to ${final.url}. Call browser_wait_for_selector or browser_snapshot before clicking or typing.`;
 }
 
 async function toolClick({ selector, tabId }) {
@@ -260,7 +260,7 @@ async function toolClick({ selector, tabId }) {
     target: { tabId: tab.id },
     func: (sel) => {
       const element = document.querySelector(sel);
-      if (!element) return { success: false, error: `Element not found: ${sel}` };
+      if (!element) return { success: false, error: `Element not found: ${sel}. Call browser_wait_for_selector('${sel}') to wait for it, or browser_snapshot to find the correct selector.` };
       element.click();
       return { success: true };
     },
@@ -268,10 +268,10 @@ async function toolClick({ selector, tabId }) {
   });
   
   if (!result[0]?.result?.success) {
-    throw new Error(result[0]?.result?.error || "Click failed");
+    throw new Error(result[0]?.result?.error || "Click failed — use browser_snapshot to inspect page state");
   }
-  
-  return `Clicked ${selector}`;
+
+  return `Clicked ${selector}. If nothing happened, the element may be non-interactive — use browser_snapshot to verify page state.`;
 }
 
 async function toolType({ selector, text, tabId, clear = false }) {
@@ -284,8 +284,8 @@ async function toolType({ selector, text, tabId, clear = false }) {
     target: { tabId: tab.id },
     func: (sel, txt, shouldClear) => {
       const element = document.querySelector(sel);
-      if (!element) return { success: false, error: `Element not found: ${sel}` };
-      
+      if (!element) return { success: false, error: `Element not found: ${sel}. Call browser_wait_for_selector('${sel}') first, or browser_snapshot to find the correct selector.` };
+
       element.focus();
       if (shouldClear) {
         element.value = "";
@@ -306,10 +306,10 @@ async function toolType({ selector, text, tabId, clear = false }) {
   });
   
   if (!result[0]?.result?.success) {
-    throw new Error(result[0]?.result?.error || "Type failed");
+    throw new Error(result[0]?.result?.error || "Type failed — use browser_snapshot to inspect page state");
   }
-  
-  return `Typed into ${selector}`;
+
+  return `Typed into ${selector}. Call browser_keyboard(key="Enter") to submit, or browser_snapshot to verify the field value.`;
 }
 
 async function toolScreenshot({ tabId, fullPage = false }) {
@@ -328,7 +328,7 @@ async function toolScreenshot({ tabId, fullPage = false }) {
       return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
     } catch (err) {
       if (err.message?.includes("not visible") || err.message?.includes("minimized")) {
-        throw new Error(`Cannot screenshot: window is minimized. Restore it first.`);
+        throw new Error(`Cannot screenshot: window is minimized. Restore it first, or use browser_snapshot instead (no window required).`);
       }
       throw err;
     }
@@ -345,7 +345,7 @@ async function toolScreenshot({ tabId, fullPage = false }) {
     return await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
   } catch (err) {
     if (err.message?.includes("not visible") || err.message?.includes("minimized")) {
-      throw new Error("Cannot screenshot: agent window is not visible.");
+      throw new Error("Cannot screenshot: agent window is not visible. Call browser_navigate to wake the window, then retry. Or use browser_snapshot instead.");
     }
     throw err;
   }
@@ -443,11 +443,13 @@ async function toolSnapshot({ tabId }) {
       }
       
       const { nodes } = buildSnapshot(document.body);
-      
+      const sliced = nodes.slice(0, 500);
+
       return {
         url: window.location.href,
         title: document.title,
-        nodes: nodes.slice(0, 500) // Limit to 500 nodes
+        nodes: sliced,
+        ...(sliced.length === 500 ? { note: "Snapshot capped at 500 nodes — page may have more elements. Scroll down and call browser_snapshot again to see more." } : {})
       };
     }
   });
@@ -489,34 +491,47 @@ async function toolExecuteScript({ code, tabId }) {
     args: [code]
   });
 
-  return JSON.stringify(result[0]?.result);
+  const r = result[0]?.result;
+  if (r !== null && typeof r === "object" && "__error" in r) {
+    throw new Error(`Script error: ${r.__error}. Check your code syntax and ensure the target elements exist.`);
+  }
+  return JSON.stringify(r);
 }
 
 async function toolScroll({ x = 0, y = 0, selector, tabId }) {
   const tab = await getTabById(tabId);
   
-  await chrome.scripting.executeScript({
+  const scrollResult = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: (scrollX, scrollY, sel) => {
       if (sel) {
         const element = document.querySelector(sel);
         if (element) {
           element.scrollIntoView({ behavior: "smooth", block: "center" });
-          return;
+          return { found: true };
         }
+        window.scrollBy(scrollX, scrollY);
+        return { found: false };
       }
       window.scrollBy(scrollX, scrollY);
+      return { found: null };
     },
     args: [x, y, selector]
   });
-  
+
+  const sr = scrollResult[0]?.result;
+  if (sr?.found === false) {
+    return `Selector "${selector}" not found — scrolled window by (${x}, ${y}) instead. Use browser_snapshot to find the correct selector.`;
+  }
   return `Scrolled ${selector ? `to ${selector}` : `by (${x}, ${y})`}`;
 }
 
 async function toolWait({ ms = 1000 }) {
   const capped = Math.min(Math.max(0, ms), 30000);
   await new Promise(resolve => setTimeout(resolve, capped));
-  return `Waited ${capped}ms`;
+  return capped < ms
+    ? `Waited ${capped}ms (capped from ${ms}ms — max is 30000ms).`
+    : `Waited ${capped}ms.`;
 }
 
 // Persists across tool calls in this SW lifecycle; reset when SW restarts.
@@ -670,7 +685,7 @@ async function toolWaitForSelector({ selector, tabId, timeout = 10000 }) {
     if (result[0]?.result) return `Element found: ${selector}`;
     await new Promise(r => setTimeout(r, 300));
   }
-  throw new Error(`Timeout waiting for selector: ${selector} (${timeout}ms)`);
+  throw new Error(`Timeout: "${selector}" not found after ${timeout}ms. Call browser_snapshot to see current DOM state and find the correct selector.`);
 }
 
 async function toolKeyboard({ key, selector, tabId, modifiers = [] }) {
@@ -680,7 +695,7 @@ async function toolKeyboard({ key, selector, tabId, modifiers = [] }) {
     target: { tabId: tab.id },
     func: (sel, k, mods) => {
       const target = sel ? document.querySelector(sel) : document.activeElement;
-      if (sel && !target) return { success: false, error: `Element not found: ${sel}` };
+      if (sel && !target) return { success: false, error: `Element not found: ${sel}. Call browser_snapshot to find the correct selector.` };
       const opts = {
         key: k, bubbles: true, cancelable: true,
         ctrlKey: mods.includes("ctrl"),
