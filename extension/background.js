@@ -501,21 +501,49 @@ async function toolWait({ ms = 1000 }) {
 // Persists across tool calls in this SW lifecycle; reset when SW restarts.
 let agentWindowId = null;
 let agentGroupId = null;
+// Mutex: deduplicates concurrent getOrCreateAgentWindow() calls
+let agentWindowCreationPromise = null;
+
+// Remove closed agent windows from tracked set and reset in-memory state
+chrome.windows.onRemoved.addListener(async (windowId) => {
+  const { agentWindowIds = [] } = await chrome.storage.session.get("agentWindowIds").catch(() => ({}));
+  if (!agentWindowIds.includes(windowId)) return;
+  const updated = agentWindowIds.filter(id => id !== windowId);
+  await chrome.storage.session.set({ agentWindowIds: updated, savedAgentWindowId: updated[updated.length - 1] ?? null }).catch(() => {});
+  if (agentWindowId === windowId) { agentWindowId = null; agentGroupId = null; }
+});
 
 async function getOrCreateAgentWindow() {
+  // Fast path: in-memory hit skips mutex
   if (agentWindowId !== null) {
-    try { await chrome.windows.get(agentWindowId); return agentWindowId; } catch {}
+    try { await chrome.windows.get(agentWindowId); return agentWindowId; } catch { agentWindowId = null; agentGroupId = null; }
   }
+  // Mutex: deduplicates concurrent window-creation calls
+  if (agentWindowCreationPromise) return agentWindowCreationPromise;
+  agentWindowCreationPromise = _getOrCreateAgentWindowImpl().finally(() => { agentWindowCreationPromise = null; });
+  return agentWindowCreationPromise;
+}
+
+async function _getOrCreateAgentWindowImpl() {
   // Persist across SW restarts within the same browser session
-  const { savedAgentWindowId } = await chrome.storage.session.get("savedAgentWindowId").catch(() => ({}));
-  if (savedAgentWindowId) {
-    try { await chrome.windows.get(savedAgentWindowId); agentWindowId = savedAgentWindowId; return agentWindowId; } catch {}
+  const { savedAgentWindowId, agentWindowIds = [] } = await chrome.storage.session.get(["savedAgentWindowId", "agentWindowIds"]).catch(() => ({}));
+  // Only reuse if the id is in our tracked set (prevents hijacking user windows)
+  if (savedAgentWindowId && agentWindowIds.includes(savedAgentWindowId)) {
+    try { await chrome.windows.get(savedAgentWindowId); agentWindowId = savedAgentWindowId; return agentWindowId; }
+    catch {} // window gone; fall through to create
   }
-  // Create new agent window — not focused so user's window stays active
+  // Create new agent window — not focused so user's window stays active.
+  // Capture focused window first; on macOS the new window may steal focus despite focused:false.
+  const focusedWindow = await chrome.windows.getCurrent({ windowTypes: ["normal"] }).catch(() => null);
   const win = await chrome.windows.create({ focused: false, width: 1280, height: 800, type: "normal" });
   agentWindowId = win.id;
+  // Restore focus to the user's original window if it was stolen.
+  if (focusedWindow?.id != null) {
+    await chrome.windows.update(focusedWindow.id, { focused: true }).catch(() => {});
+  }
   agentGroupId = null; // group belongs to old window, reset
-  await chrome.storage.session.set({ savedAgentWindowId: agentWindowId }).catch(() => {});
+  const updatedIds = [...agentWindowIds, agentWindowId];
+  await chrome.storage.session.set({ savedAgentWindowId: agentWindowId, agentWindowIds: updatedIds }).catch(() => {});
   return agentWindowId;
 }
 
@@ -529,25 +557,42 @@ async function getAgentTab() {
 async function getOrCreateAgentGroup(tabId) {
   if (agentGroupId !== null) {
     try {
-      await chrome.tabGroups.get(agentGroupId);
-      await chrome.tabs.group({ tabIds: [tabId], groupId: agentGroupId });
-      return agentGroupId;
+      const [tab, group] = await Promise.all([chrome.tabs.get(tabId), chrome.tabGroups.get(agentGroupId)]);
+      if (group.windowId === tab.windowId) {
+        await chrome.tabs.group({ tabIds: [tabId], groupId: agentGroupId });
+        return agentGroupId;
+      }
+      // Stale group is in a different window — would move the tab. Discard it.
+      agentGroupId = null;
     } catch {
-      agentGroupId = null; // group was closed
+      agentGroupId = null;
     }
   }
   const groupId = await chrome.tabs.group({ tabIds: [tabId] });
-  await chrome.tabGroups.update(groupId, { title: "OpenCode Agent", color: "cyan" });
+  try {
+    await chrome.tabGroups.update(groupId, { title: "OpenCode Agent", color: "cyan" });
+  } catch {}
   agentGroupId = groupId;
   return groupId;
 }
 
-async function toolNewTab({ url, active = false }) {
+async function toolNewTab({ url, active = true }) {
   if (url) await assertUrlAllowed(url);
   const windowId = await getOrCreateAgentWindow();
-  const tab = await chrome.tabs.create({ url: url || "about:blank", active, windowId });
-  if (url) await waitForTabLoad(tab.id);
-  await getOrCreateAgentGroup(tab.id);
+  // Single query — avoids race between two separate queries
+  const allTabs = await chrome.tabs.query({ windowId });
+  let tab;
+  if (allTabs.length === 1 && allTabs[0].url === "about:blank") {
+    await chrome.tabs.update(allTabs[0].id, { url: url || "about:blank", active });
+    tab = await chrome.tabs.get(allTabs[0].id);
+  } else {
+    tab = await chrome.tabs.create({ url: url || "about:blank", active, windowId });
+  }
+  try {
+    if (url) await waitForTabLoad(tab.id);
+  } finally {
+    await getOrCreateAgentGroup(tab.id);
+  }
   const updated = await chrome.tabs.get(tab.id);
   return JSON.stringify({ tabId: updated.id, url: updated.url, windowId: updated.windowId });
 }
