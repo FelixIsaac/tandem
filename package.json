@@ -22,7 +22,12 @@
   "scripts": {
     "start": "node src/server.js",
     "install-extension": "node bin/cli.js install",
-    "prepublishOnly": "node --check src/server.js && node --check src/host.js && node --check bin/cli.js"
+    "prepublishOnly": "node --check src/server.js && node --check src/host.js && node --check bin/cli.js",
+    "gen-icons": "node scripts/gen-icons.mjs"
+  },
+  "devDependencies": {
+    "@google/genai": "^1.50.1",
+    "sharp": "^0.33.5"
   },
   "keywords": [
     "mcp",
