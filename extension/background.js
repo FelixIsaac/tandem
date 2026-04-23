@@ -388,6 +388,12 @@ async function toolSnapshot({ tabId }) {
                element.tagName.toLowerCase();
       }
       
+      // Clear stale ids from the previous snapshot so they don't pollute the page
+      // or confuse selector lookups after a re-snapshot.
+      for (const el of document.querySelectorAll("[data-opencode-snap]")) {
+        el.removeAttribute("data-opencode-snap");
+      }
+
       function buildSnapshot(element, depth = 0, uid = 0) {
         if (depth > 10) return { nodes: [], nextUid: uid };
         
@@ -431,12 +437,17 @@ async function toolSnapshot({ tabId }) {
             }
           }
           
-          // Generate a selector
+          // Generate a selector. Prefer stable #id; otherwise stamp a unique
+          // data-attribute so the selector identifies *this* element, not the
+          // first one matching its class. Class-based selectors (`button.btn`)
+          // were misleading — they often matched 10+ elements on real pages
+          // and caused silent miss-clicks.
           if (element.id) {
-            node.selector = `#${element.id}`;
-          } else if (element.className && typeof element.className === "string") {
-            const classes = element.className.trim().split(/\s+/).slice(0, 2).join(".");
-            if (classes) node.selector = `${element.tagName.toLowerCase()}.${classes}`;
+            node.selector = `#${CSS.escape(element.id)}`;
+          } else {
+            const snapId = `s${uid}`;
+            element.setAttribute("data-opencode-snap", snapId);
+            node.selector = `[data-opencode-snap="${snapId}"]`;
           }
           
           nodes.push(node);
