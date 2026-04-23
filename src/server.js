@@ -170,12 +170,27 @@ async function executeTool(tool, args) {
   const id = `${sessionPrefix}-${++requestId}`;
 
   return new Promise((resolve, reject) => {
-    pendingRequests.set(id, { resolve, reject });
+    // Wrap resolve/reject so we always clear the timeout — otherwise every
+    // call leaks a 60s timer holding the closure until it fires.
+    let timer;
+    const cleanup = () => { if (timer) clearTimeout(timer); pendingRequests.delete(id); };
+    pendingRequests.set(id, {
+      resolve: (v) => { cleanup(); resolve(v); },
+      reject:  (e) => { cleanup(); reject(e); },
+    });
 
-    socket.write(JSON.stringify({ type: "tool_request", id, tool, args }) + "\n");
+    try {
+      socket.write(JSON.stringify({ type: "tool_request", id, tool, args }) + "\n");
+    } catch (e) {
+      // Socket may have closed between the connected check and write
+      cleanup();
+      const err = new Error(`Connection lost while sending request: ${e.message}`);
+      err.code = "CONNECTION_ERROR";
+      return reject(err);
+    }
 
     // LIMIT: 60s timeout. Host entry is cleaned up by TTL sweep in host.js.
-    setTimeout(() => {
+    timer = setTimeout(() => {
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
         const err = new Error("Tool execution timed out after 60s.");
