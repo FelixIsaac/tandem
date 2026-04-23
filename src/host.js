@@ -12,7 +12,7 @@
  */
 
 import { createServer } from "net";
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, unlinkSync, chmodSync } from "fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, unlinkSync, chmodSync, statSync, renameSync } from "fs";
 import { randomBytes } from "crypto";
 import { homedir, platform } from "os";
 import { join } from "path";
@@ -20,30 +20,69 @@ import { join } from "path";
 const BASE_DIR = join(homedir(), ".opencode-browser");
 const LOG_DIR = join(BASE_DIR, "logs");
 if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+try { chmodSync(LOG_DIR, 0o700); } catch {}
 const LOG_FILE = join(LOG_DIR, "host.log");
+const LOG_FILE_OLD = join(LOG_DIR, "host.log.1");
+const LOG_MAX_BYTES = 5 * 1024 * 1024; // 5MB cap before rotation
+const BLOCKLIST_FILE = join(BASE_DIR, "blocklist.txt");
 
 // ============================================================================
-// Auth Token — shared secret between host and MCP server
+// Auth Token — rotated per host start
 // ============================================================================
 
+// Rotate on each host start so a process that read the token file earlier
+// loses access on the next Chrome relaunch. On Windows the named pipe has a
+// permissive default ACL; rotating limits the exposure window. Server.js
+// reads the token fresh on each connect attempt.
 const TOKEN_PATH = join(BASE_DIR, "auth.token");
+const AUTH_TOKEN = randomBytes(32).toString("hex");
+writeFileSync(TOKEN_PATH, AUTH_TOKEN, { encoding: "utf8", mode: 0o600 });
+try { chmodSync(TOKEN_PATH, 0o600); } catch {}
 
-function loadOrCreateToken() {
-  if (existsSync(TOKEN_PATH)) {
-    try {
-      const t = readFileSync(TOKEN_PATH, "utf8").trim();
-      if (/^[0-9a-f]{64}$/.test(t)) return t;
-    } catch {}
+// ============================================================================
+// Logging — with redaction and size-based rotation
+// ============================================================================
+
+const REDACT_FIELDS = new Set(["code", "text", "password"]);
+
+function redactArgs(args) {
+  if (!args || typeof args !== "object") return args;
+  const out = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (REDACT_FIELDS.has(k) && typeof v === "string") {
+      out[k] = `[REDACTED ${v.length} chars]`;
+    } else if (k === "url" && typeof v === "string") {
+      // Strip query string — session tokens often live in URL params
+      const qIdx = v.indexOf("?");
+      out[k] = qIdx >= 0 ? v.slice(0, qIdx) + "?[REDACTED]" : v;
+    } else {
+      out[k] = v;
+    }
   }
-  const token = randomBytes(32).toString("hex");
-  writeFileSync(TOKEN_PATH, token, { encoding: "utf8", mode: 0o600 });
-  try { chmodSync(TOKEN_PATH, 0o600); } catch {}
-  return token;
+  return out;
 }
 
-const AUTH_TOKEN = loadOrCreateToken();
+function summarizeMessage(msg) {
+  if (!msg || typeof msg !== "object") return JSON.stringify(msg);
+  const safe = { ...msg };
+  if (safe.args) safe.args = redactArgs(safe.args);
+  if (safe.result && typeof safe.result === "string" && safe.result.length > 200) {
+    safe.result = `[${safe.result.length} bytes]`;
+  }
+  return JSON.stringify(safe);
+}
+
+function rotateIfNeeded() {
+  try {
+    if (statSync(LOG_FILE).size >= LOG_MAX_BYTES) {
+      try { unlinkSync(LOG_FILE_OLD); } catch {}
+      renameSync(LOG_FILE, LOG_FILE_OLD);
+    }
+  } catch {}
+}
 
 function log(...args) {
+  rotateIfNeeded();
   const timestamp = new Date().toISOString();
   const message = `[${timestamp}] ${args.join(" ")}\n`;
   appendFileSync(LOG_FILE, message);
@@ -209,7 +248,10 @@ function connectToMcpServer(attempt = 1) {
   });
 
   const tryListen = () => {
-    // Restrict socket to owner-only before binding (Unix only — named pipes on Windows are ACL-controlled)
+    // Restrict socket to owner-only before binding (Unix only).
+    // KNOWN LIMITATION (Windows): the named pipe is created with default ACL
+    // (Everyone). Token rotation per host start is the mitigation; any process
+    // running as the same Windows user can still race to read the token file.
     const oldUmask = platform() !== "win32" ? process.umask(0o177) : null;
     server.listen(SOCKET_PATH, () => {
       if (oldUmask !== null) {
@@ -232,7 +274,7 @@ function connectToMcpServer(attempt = 1) {
 }
 
 function handleMcpMessage(clientId, message) {
-  log(`Client ${clientId} →`, JSON.stringify(message));
+  log(`Client ${clientId} →`, summarizeMessage(message));
 
   if (message.type === "tool_request") {
     const id = ++requestId;
@@ -242,6 +284,25 @@ function handleMcpMessage(clientId, message) {
     // workloads with frequent timeouts, add a matching TTL here.
     pendingRequests.set(id, { clientId, mcpId: message.id, ts: Date.now() });
     writeMessage({ type: "tool_request", id, tool: message.tool, args: message.args });
+  }
+}
+
+// Read user-editable URL blocklist file and push to extension. Format: one
+// JS regex per line, lines starting with # are comments. Errors silently
+// ignored so a bad file doesn't break the host.
+function pushBlocklistToExtension() {
+  if (!existsSync(BLOCKLIST_FILE)) return;
+  try {
+    const patterns = readFileSync(BLOCKLIST_FILE, "utf8")
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith("#"));
+    if (patterns.length > 0) {
+      writeMessage({ type: "update_blocklist", patterns });
+      log(`Pushed ${patterns.length} user blocklist pattern(s) to extension`);
+    }
+  } catch (e) {
+    log("Failed to read blocklist file:", e.message);
   }
 }
 
@@ -257,11 +318,13 @@ function sendToClient(clientId, message) {
 // ============================================================================
 
 async function handleChromeMessage(message) {
-  log("Received from Chrome:", JSON.stringify(message));
-  
+  log("Received from Chrome:", summarizeMessage(message));
+
   switch (message.type) {
     case "ping":
       writeMessage({ type: "pong" });
+      // Push user blocklist on each ping (extension pings on connect)
+      pushBlocklistToExtension();
       break;
       
     case "tool_response": {
