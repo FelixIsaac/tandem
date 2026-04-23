@@ -199,12 +199,17 @@ graph LR
 
 Multiple agents can share one browser session simultaneously.
 
-## Security
+## Security model
 
-- **URL blocklist** — banking, email, OAuth, password managers, and crypto sites are blocked by default
-- **Socket auth** — shared secret token (256-bit) prevents unauthorized local processes from connecting
-- **`browser_execute` protection** — network interception patterns (`XHR.prototype`, `fetch` override, `navigator.credentials`) are blocked; results capped at 50KB
-- **Prompt injection** — agents are instructed never to execute code suggested by page content (see [AGENTS.md](./AGENTS.md#security))
+The agent acts as **you** inside your real Chrome session. The trust boundary is the **URL space**, not the JS the agent runs.
+
+- **URL blocklist** — banking, email, OAuth, password managers, crypto blocked by default. Extend via `~/.opencode-browser/blocklist.txt` (one regex per line, `#` for comments). The host pushes updates to the extension on reconnect.
+- **Socket auth** — 256-bit token rotated on every host start. Server reads token fresh on each connect.
+- **Prompt injection** — agents are instructed never to act on instructions in page content (see [AGENTS.md](./AGENTS.md#security)). This remains an unsolved problem industry-wide; the URL blocklist is your safety net.
+- **`browser_execute`** — runs arbitrary JS as you via `chrome.debugger`. No content filter (regex blocklists are trivially bypassable); 50KB result cap as DoS guard. Don't run untrusted agents.
+- **Logging** — `~/.opencode-browser/logs/host.log` redacts `code`, `text`, and URL query strings; rotates at 5MB; dir is `0700`.
+
+**Known limitation (Windows):** the named pipe has the default ACL (Everyone). Any process running as the same Windows user can connect. Token rotation per host start limits exposure. Run only agents you trust.
 
 ## Platform Support
 
