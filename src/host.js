@@ -294,7 +294,7 @@ let nextClientId = 0;
 const clients = new Map(); // clientId → socket
 const clientSessions = new Map(); // clientId -> sessionId
 
-// pendingRequests maps hostRequestId → { clientId, mcpId, ts }
+// pendingRequests maps hostRequestId → { clientId, mcpId, ts, tool, tabId }
 // so tool responses route back to the correct client
 let pendingRequests = new Map();
 let requestId = 0;
@@ -335,6 +335,26 @@ setInterval(() => {
   cleanupStaleClaims();
 }, 30_000).unref();
 
+// Tools where a missing tabId should be an error (never auto-create a tab)
+const TABID_REQUIRED_TOOLS = new Set(["close_tab", "switch_tab"]);
+
+// Tools that should always operate on the per-session default tab if tabId is omitted.
+// This avoids cross-session leakage via extension's implicit "agent active tab" behavior.
+const IMPLICIT_DEFAULT_TAB_TOOLS = new Set([
+  "navigate",
+  "click",
+  "type",
+  "screenshot",
+  "snapshot",
+  "execute_script",
+  "scroll",
+  "wait_for_selector",
+  "keyboard",
+]);
+
+// Host-only/broker-like tools
+const HOST_ONLY_TOOLS = new Set(["status", "list_claims", "claim_tab", "release_tab", "open_tab"]);
+
 function connectToMcpServer(attempt = 1) {
   // Clean up stale socket (Unix only — named pipes on Windows are auto-cleaned)
   if (platform() !== "win32") {
@@ -369,7 +389,9 @@ function connectToMcpServer(attempt = 1) {
             // First message must be { type: "auth", token: "<AUTH_TOKEN>" }
             if (msg.type === "auth" && msg.token === AUTH_TOKEN) {
               authenticated = true;
-              sessionId = typeof msg.sessionId === "string" && msg.sessionId.trim() ? msg.sessionId.trim() : `c${clientId}`;
+              // Treat provided sessionId as untrusted input; validate + cap.
+              const sid = typeof msg.sessionId === "string" ? msg.sessionId.trim() : "";
+              sessionId = (sid && sid.length <= 64 && /^[a-zA-Z0-9_-]+$/.test(sid)) ? sid : `c${clientId}`;
               clearTimeout(authTimeout);
               clients.set(clientId, socket);
               clientSessions.set(clientId, sessionId);
@@ -446,6 +468,11 @@ async function handleMcpMessage(clientId, message) {
     const sessionId = clientSessions.get(clientId) ?? `c${clientId}`;
     touchSession(sessionId);
 
+    // Explicit tabId (when present) must respect ownership for ALL non-host-only tools.
+    // This prevents bypass via tab management tools like close/switch.
+    const rawTabId = args?.tabId;
+    const explicitTabId = Number.isFinite(rawTabId) ? Number(rawTabId) : null;
+
     // Host-only tools
     if (tool === "status") {
       return respondToolOk(clientId, mcpId, JSON.stringify({
@@ -521,23 +548,34 @@ async function handleMcpMessage(clientId, message) {
       return respondToolOk(clientId, mcpId, res);
     }
 
-    // Tools that touch a tab: apply per-session default + ownership checks.
+    // For non-host-only tools, enforce/assign tabId as needed.
     let forwardedArgs = { ...args };
-    if (toolWantsTab(tool)) {
-      let tabId = forwardedArgs.tabId;
-      if (!Number.isFinite(tabId)) {
-        tabId = await ensureSessionTab(sessionId);
-        forwardedArgs.tabId = tabId;
+
+    if (!HOST_ONLY_TOOLS.has(tool)) {
+      // If tabId is required, fail fast.
+      if (TABID_REQUIRED_TOOLS.has(tool) && explicitTabId == null) {
+        return respondToolError(clientId, mcpId, "tabId is required");
       }
 
-      const claimCheck = checkClaim(Number(tabId), sessionId);
-      if (!claimCheck.ok) return respondToolError(clientId, mcpId, claimCheck.error);
-      touchClaim(Number(tabId), sessionId);
-      setDefaultTab(sessionId, Number(tabId));
+      // If a tabId is provided, enforce claims.
+      if (explicitTabId != null) {
+        const claimCheck = checkClaim(explicitTabId, sessionId);
+        if (!claimCheck.ok) return respondToolError(clientId, mcpId, claimCheck.error);
+        touchClaim(explicitTabId, sessionId);
+        setDefaultTab(sessionId, explicitTabId);
+      } else if (IMPLICIT_DEFAULT_TAB_TOOLS.has(tool)) {
+        // If omitted, pin to this session's default tab so tools are stable.
+        const tabId = await ensureSessionTab(sessionId);
+        forwardedArgs.tabId = tabId;
+        const claimCheck = checkClaim(tabId, sessionId);
+        if (!claimCheck.ok) return respondToolError(clientId, mcpId, claimCheck.error);
+        touchClaim(tabId, sessionId);
+        setDefaultTab(sessionId, tabId);
+      }
     }
 
     const id = ++requestId;
-    pendingRequests.set(id, { clientId, mcpId, ts: Date.now() });
+    pendingRequests.set(id, { clientId, mcpId, ts: Date.now(), tool, tabId: explicitTabId ?? forwardedArgs.tabId ?? null });
     writeMessage({ type: "tool_request", id, tool, args: forwardedArgs });
   }
 }
@@ -574,24 +612,6 @@ function respondToolOk(clientId, mcpId, content) {
 
 function respondToolError(clientId, mcpId, content) {
   sendToClient(clientId, { type: "tool_response", id: mcpId, error: { content } });
-}
-
-function toolWantsTab(toolName) {
-  // Tools that do not touch tab content.
-  return !new Set([
-    "get_tabs",
-    "wait",
-    "new_tab",
-    "close_tab",
-    "switch_tab",
-    "new_window",
-    // Host-only/broker-like tools
-    "status",
-    "list_claims",
-    "claim_tab",
-    "release_tab",
-    "open_tab",
-  ]).has(toolName);
 }
 
 async function ensureSessionTab(sessionId) {
@@ -634,10 +654,9 @@ async function handleChromeMessage(message) {
       if (pending) {
         pendingRequests.delete(message.id);
 
-        // Best-effort: if the tab was closed, drop any claim we held.
-        if (!message.error && typeof message.result?.content === "string") {
-          const m = message.result.content.match(/Closed tab\s+(\d+)/);
-          if (m) releaseClaim(Number(m[1]));
+        // Robust claim cleanup: use the request we sent, not string parsing.
+        if (!message.error && pending.tool === "close_tab" && Number.isFinite(pending.tabId)) {
+          releaseClaim(Number(pending.tabId));
         }
 
         sendToClient(pending.clientId, {
