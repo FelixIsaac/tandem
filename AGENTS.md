@@ -53,6 +53,11 @@ The user is browsing while you work. Treat their session as read-only except for
 - Use `browser_get_tabs` to find tab IDs; filter by `windowId` to distinguish agent vs user tabs
 - When you find something the user should review, tell them in chat and offer to switch: *"I found X at tab 430115299 — want me to switch to it?"*
 
+Tandem enforces **per-session tab ownership claims**:
+- Prefer omitting `tabId` so you stay within your session's default agent tab.
+- Prefer `browser_open_tab` to create a fresh claimed tab for your session.
+- If a tool errors with "owned by another session", open/claim a tab (`browser_open_tab`) or ask the user which tab to use.
+
 ## Hand-off Pattern
 When the user needs to take over (login wall, CAPTCHA, manual review):
 1. Tell them clearly what you need them to do

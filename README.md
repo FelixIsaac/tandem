@@ -162,11 +162,25 @@ args = ["~/.tandem/server.js"]
 | `browser_scroll` | Scroll page or element into view |
 | `browser_wait` | Wait for a fixed duration (capped at 30s) |
 | `browser_execute` | Run JavaScript via `chrome.debugger` — works on all pages including CSP-strict sites |
+| `browser_status` | Show connection status + current tab claims |
+| `browser_list_claims` | List per-session tab ownership claims |
+| `browser_claim_tab` | Claim a specific tab for this session |
+| `browser_release_tab` | Release a claimed tab |
+| `browser_open_tab` | Open and claim a fresh agent tab for this session |
 | `browser_get_tabs` | List all open tabs |
 | `browser_new_tab` | Open a new tab in the agent window |
 | `browser_close_tab` | Close a tab |
 | `browser_switch_tab` | Focus a tab (use to hand off to user) |
 | `browser_new_window` | Open a new browser window |
+
+## Per-tab Ownership
+
+Tandem enforces **per-session tab claims** so multiple agents can share one Chrome session without stepping on each other.
+
+- If you omit `tabId`, Tandem auto-creates (once) and reuses a **default agent tab** per MCP client session.
+- If you pass an explicit `tabId`, Tandem will reject the call if that tab is claimed by another session.
+- Use `browser_open_tab` to open a tab that is automatically claimed for your session.
+- Claims expire after inactivity (`TANDEM_CLAIM_TTL_MS`, default 5 minutes). Debug with `browser_status` / `browser_list_claims`.
 
 ## Agent Instructions
 
