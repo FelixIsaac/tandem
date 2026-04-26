@@ -1,6 +1,6 @@
 {
   "name": "@felixisaac/tandem",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Browser automation for AI agents via Chrome extension + Native Messaging. Works with OpenCode, Claude Code, and any MCP-compatible agent.",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
     "bin/",
     "src/",
     "extension/",
+    ".opencode/",
     "AGENTS.md",
     "CLAUDE.md",
     "CHANGELOG.md",
