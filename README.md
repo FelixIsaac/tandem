@@ -205,123 +205,86 @@ args = ["~/.tandem/server.js"]
 
 ## Available Tools
 
+Tandem exposes 59 public MCP tools. Related operations use `action` fields to keep the picker compact while preserving full capability.
+
 ### Page Interaction
 | Tool | Description |
 |------|-------------|
-| `browser_snapshot` | **Start here.** Accessibility tree with CSS selectors — low token cost (200–1500 tokens) |
-| `browser_snapshot_cached` | Cached snapshot — re-uses last result if URL unchanged and < 30 s old. Use in multi-step flows to skip re-layout |
-| `browser_invalidate_cache` | Clear snapshot cache for a tab (or all tabs) — call after mutating actions |
-| `browser_page_text` | Plain text (innerText) — cheapest way to read page content |
-| `browser_screenshot` | Visual capture — use only when layout matters (500–3000 tokens) |
-| `browser_navigate` | Navigate to a URL |
+| `browser_snapshot` | **Start here.** Accessibility tree with CSS selectors |
+| `browser_snapshot_cached` | Cached snapshot for repeated reads |
+| `browser_invalidate_cache` | Clear snapshot cache for one tab or all tabs |
+| `browser_page_text` | Plain text extraction |
+| `browser_screenshot` | Visual capture; supports full-page screenshots |
+| `browser_navigate` | Navigate a tab |
 | `browser_click` | Click an element by CSS selector |
-| `browser_double_click` | Double-click an element (text selection, file open) |
-| `browser_right_click` | Right-click to trigger context menu |
-| `browser_hover` | Hover mouse over element — triggers mouseover/mousemove for hover menus |
-| `browser_drag_drop` | Drag element to target element or coordinates |
-| `browser_select_option` | Select a `<select>` option by value or label text |
+| `browser_double_click` | Double-click an element |
+| `browser_right_click` | Right-click an element |
+| `browser_hover` | Hover an element |
+| `browser_drag_drop` | Drag an element to another element or coordinates |
+| `browser_select_option` | Select a native `<select>` option |
 | `browser_type` | Type text into an input |
-| `browser_keyboard` | Send key events (Enter, Escape, Tab, ctrl+a, …) |
-| `browser_dialog_handle` | Accept or dismiss alert/confirm/prompt dialogs |
-| `browser_wait_for_selector` | Wait for element to appear — essential for SPAs |
-| `browser_scroll` | Scroll page or element into view |
-| `browser_wait` | Wait for a fixed duration (capped at 30s) |
-| `browser_execute` | Run JavaScript via `chrome.debugger` — works on all pages including CSP-strict sites |
-| `browser_storage_inspect` | Read localStorage or sessionStorage from a tab |
-| `browser_print_to_pdf` | Print page to PDF via Chrome's print engine (base64) |
-| `browser_performance` | CDP Performance metrics: heap size, DOM nodes, layout count |
-| `browser_device_emulate` | Emulate mobile viewport via CDP; `reset=true` restores desktop |
-| `browser_get_element_info` | Get precise bounds, center, visibility, and z-index for any element |
+| `browser_keyboard` | Send key events |
+| `browser_dialog_handle` | Accept or dismiss JS dialogs |
+| `browser_wait_for_selector` | Wait for an element |
+| `browser_scroll` | Scroll page or element |
+| `browser_wait` | Fixed wait, capped at 30s |
+| `browser_execute` | Run JavaScript via `chrome.debugger` |
+| `browser_print_to_pdf` | Print page to PDF |
+| `browser_performance` | CDP performance metrics |
+| `browser_inspect` | DOM, version, security, styles, issues, accessibility, or element info via `action` |
 
 ### Tab Management
 | Tool | Description |
 |------|-------------|
-| `browser_status` | Show connection status + current tab claims |
+| `browser_status` | Connection status and current tab claims |
 | `browser_list_claims` | List per-session tab ownership claims |
-| `browser_claim_tab` | Claim a specific tab for this session |
+| `browser_claim_tab` | Claim a tab for this session |
 | `browser_release_tab` | Release a claimed tab |
-| `browser_open_tab` | Open and claim a fresh agent tab for this session |
+| `browser_open_tab` | Open and claim a fresh agent tab |
 | `browser_get_tabs` | List all open tabs |
-| `browser_new_tab` | Open a new tab in the agent window |
+| `browser_new_tab` | Open a tab in the agent window |
 | `browser_close_tab` | Close a tab |
-| `browser_switch_tab` | Focus a tab (use to hand off to user) |
-| `browser_new_window` | Open a new browser window (supports incognito) |
-| `browser_open_batch` | Open up to 20 URLs as tabs in one call |
-| `browser_deduplicate_tabs` | Find and close duplicate-URL tabs (supports dry-run) |
+| `browser_switch_tab` | Focus a tab |
+| `browser_new_window` | Open a new browser window |
+| `browser_open_batch` | Open up to 20 URLs |
+| `browser_deduplicate_tabs` | Find and close duplicate-URL tabs; dry-run by default |
+| `browser_tab_group` | List, create, update, or move tab groups via `action` |
 
-### Tab Groups
+### Sessions & History
 | Tool | Description |
 |------|-------------|
-| `browser_get_tab_groups` | List all tab groups with colors, titles, and member tabs |
-| `browser_create_tab_group` | Create a new group from tab IDs with optional title and color |
-| `browser_update_tab_group` | Rename, recolor, or collapse/expand a group |
-| `browser_move_to_group` | Move tabs into an existing group |
-
-### Sessions
-| Tool | Description |
-|------|-------------|
-| `browser_session_save` | Save all open tabs as a named session to Chrome storage |
-| `browser_session_restore` | Restore a saved session (opens all saved URLs) |
-| `browser_recently_closed` | List recently closed tabs/windows |
-| `browser_restore_session` | Restore a recently closed tab/window by session ID |
-
-### History & Bookmarks
-| Tool | Description |
-|------|-------------|
-| `browser_search_history` | Search history by keyword, URL, and date range |
-| `browser_recent_browsing` | Recent visits from the last N hours |
-| `browser_history_stats` | Total entries, date range, top visited domains |
+| `browser_session` | Save/restore named sessions or list/restore recently closed sessions via `action` |
+| `browser_history` | Search history, recent visits, or stats via `action` |
 | `browser_get_bookmarks` | Full bookmarks tree |
+| `browser_find_tabs` | Find open tabs by title or URL |
+| `browser_top_sites` | List top visited sites |
+| `browser_reading_list` | Get, add, or remove reading-list entries via `action` |
 
 ### Browser Utilities
 | Tool | Description |
 |------|-------------|
 | `browser_downloads` | List recent Chrome downloads |
-| `browser_notify` | Send a Chrome desktop notification (supports buttons) |
-| `browser_storage_read` | Read Chrome extension storage (local or sync) |
+| `browser_notify` | Send a desktop notification |
+| `browser_storage` | Read extension storage, inspect page storage, or clear origin storage via `action` |
 | `browser_clear_browsing_data` | Clear selected browsing data types |
 | `browser_save_mhtml` | Save a tab as MHTML |
 | `browser_console_logs` | Capture console logs briefly |
-| `browser_get_dom` | Return DOM document data via CDP |
-| `browser_get_version` | Return browser/CDP version |
-| `browser_clear_storage` | Clear origin storage data |
-| `browser_find_tabs` | Find open tabs by URL/title/window/group |
-| `browser_context_events` | Read right-click context captures from "Send to Tandem" |
-| `browser_watch_page` | Start/stop page watching or query idle state |
-| `browser_get_security_state` | Read page security state |
-| `browser_list_fonts` | List browser fonts |
+| `browser_context_events` | Read right-click "Send to Tandem" captures |
+| `browser_watch_page` | Start/stop page watching or query idle state via `action` |
+| `browser_list_fonts` | List browser font settings |
 | `browser_list_extensions` | List installed extensions |
-| `browser_get_computed_styles` | Read computed styles for an element |
-| `browser_get_page_issues` | Read page issues via CDP |
-| `browser_query_accessibility` | Query accessibility tree by role/name |
-| `browser_set_site_permission` | Set a site permission |
+| `browser_set_site_permission` | Set site permission |
 | `browser_wait_for_navigation` | Wait for navigation events |
 | `browser_batch_execute` | Run one JS snippet across selected tabs |
-| `browser_top_sites` | List top visited sites |
 | `browser_system_info` | Read CPU/memory/display info |
 | `browser_speak` | Speak text with Chrome TTS |
 
-### Cookie Management
+### Control & Data
 | Tool | Description |
 |------|-------------|
-| `browser_get_cookies` | Get cookies for a tab's URL via CDP |
-| `browser_get_all_cookies` | Get all browser cookies (optional domain filter) |
-| `browser_set_cookie` | Set a cookie with full control over flags and expiry |
-| `browser_delete_cookies` | Delete cookies by name, domain, or URL |
-
-### Reading List
-| Tool | Description |
-|------|-------------|
-| `browser_reading_list` | Get, add, or remove reading-list entries |
-
-### Network & Emulation
-| Tool | Description |
-|------|-------------|
-| `browser_network_conditions` | Throttle bandwidth / add latency / go offline — presets: offline, slow-2g, 2g, 3g, fast-3g, 4g |
-| `browser_geolocation` | Override GPS coordinates; `reset=true` clears |
-| `browser_user_agent` | Override UA string (presets: mobile-android, mobile-ios), timezone, and locale |
-| `browser_inject_script` | Inject JS at document start on every page load; returns scriptId |
-| `browser_block_urls` | Block URL patterns from loading (ads, analytics, images); `reset=true` clears |
+| `browser_cookies` | Get, list all, set, or delete cookies via `action` |
+| `browser_inject_script` | Inject JS at document start |
+| `browser_emulation` | Device, network, geolocation, user agent, or URL blocking via `action` |
 
 ## MCP Resources
 

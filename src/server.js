@@ -81,43 +81,32 @@ const GENERIC_STRUCTURED_OUTPUT_TOOL_NAMES = new Set([
   "browser_open_tab",
   "browser_status",
   "browser_list_claims",
-  "browser_search_history",
-  "browser_recent_browsing",
-  "browser_history_stats",
+  "browser_history",
   "browser_get_bookmarks",
-  "browser_get_tab_groups",
+  "browser_tab_group",
   "browser_deduplicate_tabs",
   "browser_open_batch",
-  "browser_session_save",
-  "browser_session_restore",
+  "browser_session",
   "browser_downloads",
   "browser_performance",
   "browser_print_to_pdf",
-  "browser_storage_read",
-  "browser_storage_inspect",
-  "browser_recently_closed",
+  "browser_storage",
   "browser_top_sites",
   "browser_reading_list",
   "browser_system_info",
   "browser_save_mhtml",
-  "browser_get_cookies",
-  "browser_get_dom",
-  "browser_get_version",
+  "browser_cookies",
+  "browser_inspect",
   "browser_find_tabs",
   "browser_context_events",
   "browser_watch_page",
-  "browser_get_security_state",
   "browser_list_fonts",
   "browser_list_extensions",
-  "browser_get_computed_styles",
-  "browser_get_page_issues",
-  "browser_query_accessibility",
   "browser_wait_for_navigation",
   "browser_snapshot_cached",
   "browser_select_option",
-  "browser_get_all_cookies",
   "browser_inject_script",
-  "browser_get_element_info",
+  "browser_emulation",
   "browser_batch_execute",
 ]);
 
@@ -571,38 +560,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_search_history",
-      description: "Search Chrome browsing history by keyword and/or URL. Returns matching entries with visit counts, titles, and timestamps. Requires the history permission in the extension.",
+      name: "browser_history",
+      description: "Search recent Chrome history or return history stats. Actions: search, recent, stats.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Search text to match against URL and title (empty string returns all recent entries)" },
-          startTime: { type: "string", description: "ISO 8601 start date (e.g. 2026-05-01)" },
-          endTime: { type: "string", description: "ISO 8601 end date (e.g. 2026-05-16)" },
-          maxResults: { type: "number", description: "Max results to return (default 100, max 1000)" }
-        },
-        required: []
+          action: { type: "string", enum: ["search", "recent", "stats"], description: "History operation (default: search)" },
+          query: { type: "string", description: "Search text for action:search" },
+          startTime: { type: "string", description: "ISO 8601 start date for search" },
+          endTime: { type: "string", description: "ISO 8601 end date for search" },
+          hours: { type: "number", description: "Hours back for action:recent (default 24)" },
+          maxResults: { type: "number", description: "Max results" }
+        }
       }
-    },
-    {
-      name: "browser_recent_browsing",
-      description: "Get recently visited URLs from Chrome history. Returns entries from the last N hours, sorted by most recent.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          hours: { type: "number", description: "How many hours back to look (default 24)" },
-          maxResults: { type: "number", description: "Max results (default 50)" }
-        },
-        required: []
-      }
-    },
-    {
-      name: "browser_history_stats",
-      description: "Get statistics about Chrome browsing history: total entries, date range, and top visited domains.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: {} }
     },
     {
       name: "browser_get_bookmarks",
@@ -611,51 +582,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
-      name: "browser_get_tab_groups",
-      description: "List all Chrome tab groups with their colors, titles, collapse state, and member tabs.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
-      name: "browser_create_tab_group",
-      description: "Create a new tab group from a list of tab IDs. Optionally set a title and color.",
+      name: "browser_tab_group",
+      description: "List, create, update, or move Chrome tab groups. Actions: list, create, update, move.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: {
         type: "object",
         properties: {
-          tabIds: { type: "array", items: { type: "number" }, description: "Tab IDs to group" },
-          title: { type: "string", description: "Group label" },
-          color: { type: "string", enum: ["grey","blue","red","yellow","green","pink","purple","cyan","orange"], description: "Group color (default: blue)" }
-        },
-        required: ["tabIds"]
-      }
-    },
-    {
-      name: "browser_update_tab_group",
-      description: "Rename, recolor, or collapse/expand an existing tab group.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          groupId: { type: "number", description: "Tab group ID (from browser_get_tab_groups)" },
-          title: { type: "string" },
+          action: { type: "string", enum: ["list", "create", "update", "move"], description: "Tab group operation (default: list)" },
+          tabIds: { type: "array", items: { type: "number" }, description: "Tab IDs for create/move" },
+          groupId: { type: "number", description: "Group ID for update/move" },
+          title: { type: "string", description: "Group title" },
           color: { type: "string", enum: ["grey","blue","red","yellow","green","pink","purple","cyan","orange"] },
           collapsed: { type: "boolean" }
-        },
-        required: ["groupId"]
-      }
-    },
-    {
-      name: "browser_move_to_group",
-      description: "Move one or more tabs into an existing tab group.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabIds: { type: "array", items: { type: "number" }, description: "Tab IDs to move" },
-          groupId: { type: "number", description: "Target group ID" }
-        },
-        required: ["tabIds", "groupId"]
+        }
       }
     },
     {
@@ -679,23 +618,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {
           tabId: { type: "number", description: "Tab ID (default: agent tab)" }
-        }
-      }
-    },
-    {
-      name: "browser_device_emulate",
-      description: "Emulate a mobile device viewport in a tab (useful for testing mobile layouts). Set reset=true to restore desktop.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          width: { type: "number", description: "Viewport width in pixels (default 390 = iPhone 14)" },
-          height: { type: "number", description: "Viewport height (default 844)" },
-          deviceScaleFactor: { type: "number", description: "DPR (default 3)" },
-          mobile: { type: "boolean", description: "Treat as mobile (default true)" },
-          userAgent: { type: "string", description: "Optional user agent override" },
-          reset: { type: "boolean", description: "Reset to desktop viewport (default false)" }
         }
       }
     },
@@ -740,44 +662,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_storage_inspect",
-      description: "Read localStorage or sessionStorage contents from a tab. Useful for debugging web app state.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          store: { type: "string", enum: ["local", "session"], description: "Which storage to read (default: local)" }
-        }
-      }
-    },
-    {
-      name: "browser_session_save",
-      description: "Save open tabs as a named session to Chrome storage. Sensitive/blocklisted URLs are skipped by default. Scope with windowId or tabIds.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Session name (default: \"default\")" },
-          windowId: { type: "number", description: "Only save tabs in this window" },
-          tabIds: { type: "array", items: { type: "number" }, description: "Only save this explicit tab set" },
-          includeSensitive: { type: "boolean", description: "Include blocklisted URLs (default false)" }
-        }
-      }
-    },
-    {
-      name: "browser_session_restore",
-      description: "Restore a previously saved tab session by name. Opens all saved URLs as new tabs.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Session name to restore (default: \"default\")" },
-          newWindow: { type: "boolean", description: "Open in a new window (default false)" }
-        }
-      }
-    },
-    {
       name: "browser_notify",
       description: "Send a Chrome desktop notification with a title and message. Optionally include up to 2 action buttons.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -792,14 +676,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_storage_read",
-      description: "Read values from Chrome extension storage (local or sync). Useful for inspecting Tandem's own storage or other extension data.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      name: "browser_storage",
+      description: "Read extension storage, inspect page storage, or clear origin storage. Actions: read_extension, inspect_page, clear_origin.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: {
         type: "object",
         properties: {
-          keys: { type: "array", items: { type: "string" }, description: "Keys to read (omit for all)" },
-          area: { type: "string", enum: ["local", "sync"], description: "Storage area (default: local)" }
+          action: { type: "string", enum: ["read_extension", "inspect_page", "clear_origin"], description: "Storage operation" },
+          tabId: { type: "number" },
+          keys: { type: "array", items: { type: "string" }, description: "Extension storage keys for read_extension" },
+          area: { type: "string", enum: ["local", "sync"], description: "Extension storage area (default: local)" },
+          store: { type: "string", enum: ["local", "session"], description: "Page storage area for inspect_page" },
+          storageTypes: { type: "array", items: { type: "string" }, description: "Origin storage types for clear_origin" }
         }
       }
     },
@@ -816,16 +704,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_recently_closed",
-      description: "List recently closed tabs and windows (up to 25). Returns sessionId for use with browser_restore_session.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: { maxResults: { type: "number", description: "Max entries (default 10, max 25)" } } }
-    },
-    {
-      name: "browser_restore_session",
-      description: "Restore a recently closed tab or window by sessionId (from browser_recently_closed).",
+      name: "browser_session",
+      description: "Save/restore named tab sessions or list/restore recently closed Chrome sessions. Actions: save, restore_saved, recent, restore_recent.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: { type: "object", properties: { sessionId: { type: "string", description: "Session ID from browser_recently_closed" } }, required: ["sessionId"] }
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["save", "restore_saved", "recent", "restore_recent"], description: "Session operation" },
+          name: { type: "string", description: "Saved session name" },
+          newWindow: { type: "boolean", description: "Restore saved session into a new window" },
+          windowId: { type: "number", description: "Only save tabs in this window" },
+          tabIds: { type: "array", items: { type: "number" }, description: "Only save these tabs" },
+          includeSensitive: { type: "boolean", description: "Include blocklisted URLs while saving" },
+          maxResults: { type: "number", description: "Max recently closed entries" },
+          sessionId: { type: "string", description: "Recently closed session ID" }
+        }
+      }
     },
     {
       name: "browser_top_sites",
@@ -899,42 +793,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_get_cookies",
-      description: "Get cookies for the current tab's URL via CDP. Returns name, value, domain, expiry, httpOnly, secure, sameSite.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          urls: { type: "array", items: { type: "string" }, description: "Filter to specific URLs (default: current tab URL)" }
-        }
-      }
-    },
-    {
-      name: "browser_get_dom",
-      description: "Get the full serialized HTML DOM of a tab (outerHTML via CDP). Useful for structural analysis. Truncated at 200KB.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: { tabId: { type: "number" } } }
-    },
-    {
-      name: "browser_get_version",
-      description: "Get Chrome browser version, protocol version, product name, and user agent string.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
-      name: "browser_clear_storage",
-      description: "Clear web storage for a tab's origin via CDP (localStorage, sessionStorage, IndexedDB, cache storage, etc.).",
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          storageTypes: { type: "array", items: { type: "string" }, description: "Storage types to clear (default: local_storage, session_storage, cache_storage, indexeddb). Options: cookies, local_storage, session_storage, indexeddb, cache_storage, service_workers, file_systems" }
-        }
-      }
-    },
-    {
       name: "browser_find_tabs",
       description: "Search all open tabs by keyword — matches against URL and/or title. Better than filtering browser_get_tabs output manually.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -977,10 +835,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_get_security_state",
-      description: "Get the security state of a tab via CDP: TLS certificate info, mixed content warnings, safe browsing status.",
+      name: "browser_inspect",
+      description: "CDP/browser inspection. Actions: dom, version, security, styles, issues, accessibility, element.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: { tabId: { type: "number", description: "Tab ID (default: agent tab)" } } }
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["dom", "version", "security", "styles", "issues", "accessibility", "element"], description: "Inspection operation" },
+          tabId: { type: "number" },
+          selector: { type: "string", description: "CSS selector for styles/element" },
+          role: { type: "string", description: "ARIA role for accessibility query" },
+          name: { type: "string", description: "Accessible name for accessibility query" }
+        }
+      }
     },
     {
       name: "browser_list_fonts",
@@ -996,38 +863,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {
           includeDisabled: { type: "boolean", description: "Include disabled extensions (default true)" }
-        }
-      }
-    },
-    {
-      name: "browser_get_computed_styles",
-      description: "Get computed CSS styles for a DOM element via CDP. Returns all computed property values for the matched element.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          selector: { type: "string", description: "CSS selector for the element" },
-          tabId: { type: "number", description: "Tab ID (default: agent tab)" }
-        },
-        required: ["selector"]
-      }
-    },
-    {
-      name: "browser_get_page_issues",
-      description: "Capture browser-detected page issues via CDP Audits domain: accessibility violations, mixed content, deprecation warnings, cookie issues.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: { type: "object", properties: { tabId: { type: "number" } } }
-    },
-    {
-      name: "browser_query_accessibility",
-      description: "Find elements in the accessibility tree by role and/or accessible name. More semantic than CSS selectors — use for finding buttons, inputs, and landmarks by their label.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          role: { type: "string", description: "ARIA role to match (e.g. button, textbox, heading, link, checkbox)" },
-          name: { type: "string", description: "Accessible name to match (e.g. 'Submit', 'Search')" },
-          tabId: { type: "number" }
         }
       }
     },
@@ -1165,96 +1000,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_get_all_cookies",
-      description: "Get all cookies in the browser (not just the current tab's URL). Optionally filter by domain.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number", description: "Tab to attach debugger to (optional, uses active tab)" },
-          domain: { type: "string", description: "Filter cookies to this domain (substring match)" }
-        }
-      }
-    },
-    {
-      name: "browser_set_cookie",
-      description: "Set a browser cookie by name, value, and optional domain/path/flags.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          name: { type: "string" },
-          value: { type: "string" },
-          domain: { type: "string", description: "Cookie domain (e.g. .example.com)" },
-          path: { type: "string", description: "Cookie path (default: /)" },
-          secure: { type: "boolean" },
-          httpOnly: { type: "boolean" },
-          sameSite: { type: "string", enum: ["Strict", "Lax", "None"], description: "SameSite policy (default: Lax)" },
-          expirationDate: { type: "number", description: "Unix timestamp for cookie expiry" }
-        },
-        required: ["name", "value"]
-      }
-    },
-    {
-      name: "browser_delete_cookies",
-      description: "Delete cookies by name, optionally scoped to a domain or URL.",
+      name: "browser_cookies",
+      description: "High-risk cookie operations. Actions: get, get_all, set, delete.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: {
         type: "object",
         properties: {
+          action: { type: "string", enum: ["get", "get_all", "set", "delete"], description: "Cookie operation" },
           tabId: { type: "number" },
-          name: { type: "string", description: "Cookie name to delete" },
-          domain: { type: "string", description: "Restrict deletion to this domain" },
-          url: { type: "string", description: "Restrict deletion to this URL" }
-        },
-        required: ["name"]
-      }
-    },
-    {
-      name: "browser_network_conditions",
-      description: "Emulate network conditions: throttle bandwidth, add latency, or go offline. Use preset names (offline, slow-2g, 2g, 3g, slow-3g, fast-3g, 4g) or custom values. Set reset:true to restore normal network.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          preset: { type: "string", enum: ["offline","slow-2g","2g","3g","slow-3g","fast-3g","4g"], description: "Named network preset" },
-          offline: { type: "boolean", description: "Force offline mode (custom only)" },
-          latency: { type: "number", description: "Additional latency in ms (custom only)" },
-          downloadThroughput: { type: "number", description: "Download speed in bytes/s, -1 for unlimited (custom only)" },
-          uploadThroughput: { type: "number", description: "Upload speed in bytes/s, -1 for unlimited (custom only)" },
-          reset: { type: "boolean", description: "Restore normal network conditions" }
-        }
-      }
-    },
-    {
-      name: "browser_geolocation",
-      description: "Override the browser's geolocation (GPS coordinates). Useful for testing location-aware features. Set reset:true to clear the override.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          latitude: { type: "number", description: "Latitude in degrees" },
-          longitude: { type: "number", description: "Longitude in degrees" },
-          accuracy: { type: "number", description: "Accuracy in meters (default: 1)" },
-          reset: { type: "boolean", description: "Clear geolocation override" }
-        }
-      }
-    },
-    {
-      name: "browser_user_agent",
-      description: "Override user agent string, timezone, and/or locale for a tab. Built-in presets: mobile-android, mobile-ios. Set reset:true to restore all defaults.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          tabId: { type: "number" },
-          userAgent: { type: "string", description: "UA string or preset: mobile-android, mobile-ios" },
-          timezoneId: { type: "string", description: "IANA timezone (e.g. America/New_York, Asia/Singapore)" },
-          locale: { type: "string", description: "Locale string (e.g. en-US, zh-SG)" },
-          reset: { type: "boolean", description: "Reset user agent, timezone, and locale to defaults" }
+          urls: { type: "array", items: { type: "string" }, description: "URLs for get" },
+          name: { type: "string" },
+          value: { type: "string" },
+          domain: { type: "string" },
+          path: { type: "string" },
+          secure: { type: "boolean" },
+          httpOnly: { type: "boolean" },
+          sameSite: { type: "string", enum: ["Strict", "Lax", "None"] },
+          expirationDate: { type: "number" },
+          url: { type: "string", description: "URL scope for delete" }
         }
       }
     },
@@ -1273,29 +1036,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "browser_block_urls",
-      description: "Block URL patterns from loading in a tab (e.g. ad networks, analytics, slow resources). Pass reset:true to unblock all. Note: applies for the duration of the debugger session.",
+      name: "browser_emulation",
+      description: "CDP emulation/control. Actions: device, network, geolocation, user_agent, block_urls.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         type: "object",
         properties: {
+          action: { type: "string", enum: ["device", "network", "geolocation", "user_agent", "block_urls"], description: "Emulation operation" },
           tabId: { type: "number" },
-          patterns: { type: "array", items: { type: "string" }, description: "URL substring patterns to block (e.g. ['analytics.com', '.png'])" },
-          reset: { type: "boolean", description: "Remove all URL blocks" }
+          width: { type: "number" },
+          height: { type: "number" },
+          deviceScaleFactor: { type: "number" },
+          mobile: { type: "boolean" },
+          userAgent: { type: "string" },
+          preset: { type: "string", enum: ["offline","slow-2g","2g","3g","slow-3g","fast-3g","4g"] },
+          offline: { type: "boolean" },
+          latency: { type: "number" },
+          downloadThroughput: { type: "number" },
+          uploadThroughput: { type: "number" },
+          latitude: { type: "number" },
+          longitude: { type: "number" },
+          accuracy: { type: "number" },
+          timezoneId: { type: "string" },
+          locale: { type: "string" },
+          patterns: { type: "array", items: { type: "string" } },
+          reset: { type: "boolean" }
         }
-      }
-    },
-    {
-      name: "browser_get_element_info",
-      description: "Get precise position, size, visibility, and computed style of a DOM element. Returns bounds, center coordinates, contentQuad, display, visibility, and z-index.",
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-      inputSchema: {
-        type: "object",
-        properties: {
-          selector: { type: "string", description: "CSS selector for the element" },
-          tabId: { type: "number" }
-        },
-        required: ["selector"]
       }
     },
     {
@@ -1328,43 +1094,32 @@ const STRUCTURED_OUTPUT_TOOLS = new Set([
   "browser_open_tab",
   "browser_status",
   "browser_list_claims",
-  "browser_search_history",
-  "browser_recent_browsing",
-  "browser_history_stats",
+  "browser_history",
   "browser_get_bookmarks",
-  "browser_get_tab_groups",
+  "browser_tab_group",
   "browser_deduplicate_tabs",
   "browser_open_batch",
-  "browser_session_save",
-  "browser_session_restore",
+  "browser_session",
   "browser_downloads",
   "browser_performance",
   "browser_print_to_pdf",
-  "browser_storage_read",
-  "browser_storage_inspect",
-  "browser_recently_closed",
+  "browser_storage",
   "browser_top_sites",
   "browser_reading_list",
   "browser_system_info",
   "browser_save_mhtml",
-  "browser_get_cookies",
-  "browser_get_dom",
-  "browser_get_version",
+  "browser_cookies",
+  "browser_inspect",
   "browser_find_tabs",
   "browser_context_events",
   "browser_watch_page",
-  "browser_get_security_state",
   "browser_list_fonts",
   "browser_list_extensions",
-  "browser_get_computed_styles",
-  "browser_get_page_issues",
-  "browser_query_accessibility",
   "browser_wait_for_navigation",
   "browser_snapshot_cached",
   "browser_select_option",
-  "browser_get_all_cookies",
   "browser_inject_script",
-  "browser_get_element_info",
+  "browser_emulation",
   "browser_batch_execute",
 ]);
 
@@ -1390,28 +1145,18 @@ const TOOL_MAP = {
   browser_new_window:        "new_window",
   browser_wait_for_selector: "wait_for_selector",
   browser_keyboard:          "keyboard",
-  browser_search_history:    "search_history",
-  browser_recent_browsing:   "recent_browsing",
-  browser_history_stats:     "history_stats",
+  browser_history:           "history",
   browser_get_bookmarks:     "get_bookmarks",
-  browser_get_tab_groups:    "get_tab_groups",
-  browser_create_tab_group:  "create_tab_group",
-  browser_update_tab_group:  "update_tab_group",
-  browser_move_to_group:     "move_to_group",
+  browser_tab_group:         "tab_group",
   browser_print_to_pdf:      "print_to_pdf",
   browser_performance:       "performance",
-  browser_device_emulate:    "device_emulate",
   browser_page_text:         "page_text",
   browser_deduplicate_tabs:  "deduplicate_tabs",
   browser_open_batch:        "open_batch",
-  browser_storage_inspect:   "storage_inspect",
-  browser_session_save:      "session_save",
-  browser_session_restore:   "session_restore",
   browser_notify:            "notify",
-  browser_storage_read:        "storage_read",
+  browser_storage:             "storage",
   browser_downloads:           "downloads",
-  browser_recently_closed:     "recently_closed",
-  browser_restore_session:     "restore_session",
+  browser_session:             "session",
   browser_top_sites:           "top_sites",
   browser_reading_list:        "reading_list",
   browser_system_info:         "system_info",
@@ -1419,19 +1164,13 @@ const TOOL_MAP = {
   browser_clear_browsing_data: "clear_browsing_data",
   browser_save_mhtml:          "save_mhtml",
   browser_console_logs:        "console_logs",
-  browser_get_cookies:         "get_cookies",
-  browser_get_dom:             "get_dom",
-  browser_get_version:         "get_version",
-  browser_clear_storage:       "clear_storage",
+  browser_cookies:             "cookies",
+  browser_inspect:             "inspect",
   browser_find_tabs:           "find_tabs",
   browser_context_events:      "context_events",
   browser_watch_page:          "watch_page",
-  browser_get_security_state:  "get_security_state",
   browser_list_fonts:          "list_fonts",
   browser_list_extensions:     "list_extensions",
-  browser_get_computed_styles: "get_computed_styles",
-  browser_get_page_issues:     "get_page_issues",
-  browser_query_accessibility: "query_accessibility",
   browser_set_site_permission: "set_site_permission",
   browser_wait_for_navigation: "wait_for_navigation",
   browser_snapshot_cached:     "snapshot_cached",
@@ -1442,15 +1181,8 @@ const TOOL_MAP = {
   browser_right_click:         "right_click",
   browser_drag_drop:           "drag_drop",
   browser_dialog_handle:       "dialog_handle",
-  browser_get_all_cookies:     "get_all_cookies",
-  browser_set_cookie:          "set_cookie",
-  browser_delete_cookies:      "delete_cookies",
-  browser_network_conditions:  "network_conditions",
-  browser_geolocation:         "geolocation",
-  browser_user_agent:          "user_agent",
   browser_inject_script:       "inject_script",
-  browser_block_urls:          "block_urls",
-  browser_get_element_info:    "get_element_info",
+  browser_emulation:           "emulation",
   browser_batch_execute:       "batch_execute",
 };
 

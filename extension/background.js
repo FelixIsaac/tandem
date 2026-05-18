@@ -218,7 +218,17 @@ async function handleToolRequest(request) {
 
   try {
     // Block tools that touch tab content if the target URL is sensitive
-    const tablessTools = new Set(["get_tabs", "wait", "new_tab", "close_tab", "switch_tab", "new_window", "search_history", "recent_browsing", "history_stats", "get_bookmarks", "get_tab_groups", "create_tab_group", "update_tab_group", "move_to_group", "deduplicate_tabs", "open_batch", "session_save", "session_restore", "notify", "storage_read", "downloads", "recently_closed", "restore_session", "top_sites", "reading_list", "reading_list_get", "reading_list_add", "reading_list_remove", "system_info", "speak", "clear_browsing_data", "save_mhtml", "get_version", "find_tabs", "context_events", "watch_page", "watch_page_stop", "watch_idle", "list_fonts", "list_extensions", "set_site_permission", "wait_for_navigation", "invalidate_cache", "batch_execute"]);
+    const tablessTools = new Set([
+      "get_tabs", "wait", "new_tab", "close_tab", "switch_tab", "new_window",
+      "history", "search_history", "recent_browsing", "history_stats", "get_bookmarks",
+      "tab_group", "get_tab_groups", "create_tab_group", "update_tab_group", "move_to_group",
+      "deduplicate_tabs", "open_batch", "session", "session_save", "session_restore", "notify",
+      "storage", "storage_read", "downloads", "recently_closed", "restore_session", "top_sites",
+      "reading_list", "reading_list_get", "reading_list_add", "reading_list_remove", "system_info",
+      "speak", "clear_browsing_data", "save_mhtml", "cookies", "inspect", "get_version", "find_tabs",
+      "context_events", "watch_page", "watch_page_stop", "watch_idle", "list_fonts", "list_extensions",
+      "set_site_permission", "wait_for_navigation", "invalidate_cache", "emulation", "batch_execute"
+    ]);
     if (!tablessTools.has(tool)) {
       await assertTabAllowed(args?.tabId ?? null);
     }
@@ -254,10 +264,12 @@ const TOOL_HANDLERS = {
   new_window:           toolNewWindow,
   wait_for_selector:    toolWaitForSelector,
   keyboard:             toolKeyboard,
+  history:              toolHistory,
   search_history:       toolSearchHistory,
   recent_browsing:      toolRecentBrowsing,
   history_stats:        toolHistoryStats,
   get_bookmarks:        toolGetBookmarks,
+  tab_group:            toolTabGroup,
   get_tab_groups:       toolGetTabGroups,
   create_tab_group:     toolCreateTabGroup,
   update_tab_group:     toolUpdateTabGroup,
@@ -268,7 +280,9 @@ const TOOL_HANDLERS = {
   page_text:            toolPageText,
   deduplicate_tabs:     toolDeduplicateTabs,
   open_batch:           toolOpenBatch,
+  storage:              toolStorage,
   storage_inspect:      toolStorageInspect,
+  session:              toolSession,
   session_save:         toolSessionSave,
   session_restore:      toolSessionRestore,
   notify:               toolNotify,
@@ -286,7 +300,9 @@ const TOOL_HANDLERS = {
   clear_browsing_data:  toolClearBrowsingData,
   save_mhtml:           toolSaveMhtml,
   console_logs:         toolConsoleLogs,
+  cookies:              toolCookies,
   get_cookies:          toolGetCookies,
+  inspect:              toolInspect,
   get_dom:              toolGetDom,
   get_version:          toolGetVersion,
   clear_storage:        toolClearStorage,
@@ -315,6 +331,7 @@ const TOOL_HANDLERS = {
   get_all_cookies:      toolGetAllCookies,
   set_cookie:           toolSetCookie,
   delete_cookies:       toolDeleteCookies,
+  emulation:            toolEmulation,
   network_conditions:   toolNetworkConditions,
   geolocation:          toolGeolocation,
   user_agent:           toolUserAgent,
@@ -398,7 +415,7 @@ async function toolClick({ selector, tabId }) {
     throw new Error(result[0]?.result?.error || "Click failed — use browser_snapshot to inspect page state");
   }
 
-  return `Clicked ${selector}${result[0]?.result?.role ? ` (${result[0].result.role})` : ""}. If nothing happened, use browser_snapshot or browser_get_element_info to inspect page state.`;
+  return `Clicked ${selector}${result[0]?.result?.role ? ` (${result[0].result.role})` : ""}. If nothing happened, use browser_snapshot or browser_inspect action:element to inspect page state.`;
 }
 
 async function toolType({ selector, text, tabId, clear = false }) {
@@ -1057,6 +1074,13 @@ async function toolHistoryStats() {
   });
 }
 
+async function toolHistory({ action = "search", ...args } = {}) {
+  if (action === "search") return await toolSearchHistory(args);
+  if (action === "recent") return await toolRecentBrowsing(args);
+  if (action === "stats") return await toolHistoryStats(args);
+  throw new Error("Invalid action. Use search, recent, or stats.");
+}
+
 function flattenBookmarks(nodes, depth = 0) {
   const results = [];
   for (const node of nodes) {
@@ -1120,6 +1144,14 @@ async function toolMoveToGroup({ tabIds, groupId }) {
   if (!groupId) throw new Error("groupId is required");
   await chrome.tabs.group({ tabIds, groupId });
   return `Moved ${tabIds.length} tab(s) to group ${groupId}`;
+}
+
+async function toolTabGroup({ action = "list", ...args } = {}) {
+  if (action === "list") return await toolGetTabGroups(args);
+  if (action === "create") return await toolCreateTabGroup(args);
+  if (action === "update") return await toolUpdateTabGroup(args);
+  if (action === "move") return await toolMoveToGroup(args);
+  throw new Error("Invalid action. Use list, create, update, or move.");
 }
 
 // ============================================================================
@@ -1301,7 +1333,7 @@ async function toolSessionRestore({ name = "default", newWindow = false } = {}) 
   const key = `session_${name}`;
   const data = await chrome.storage.local.get(key);
   const session = data[key];
-  if (!session) throw new Error(`No session found with name "${name}". Use browser_session_save first.`);
+  if (!session) throw new Error(`No session found with name "${name}". Use browser_session with action:save first.`);
   const windowId = newWindow ? (await chrome.windows.create({ focused: true })).id : undefined;
   const results = [];
   for (const t of session.tabs) {
@@ -1344,6 +1376,19 @@ async function toolStorageRead({ keys, area = "local" } = {}) {
   return JSON.stringify(data);
 }
 
+async function toolStorage({ action = "read_extension", ...args } = {}) {
+  if (action === "read_extension") return await toolStorageRead(args);
+  if (action === "inspect_page") {
+    await assertTabAllowed(args.tabId ?? null);
+    return await toolStorageInspect(args);
+  }
+  if (action === "clear_origin") {
+    await assertTabAllowed(args.tabId ?? null);
+    return await toolClearStorage(args);
+  }
+  throw new Error("Invalid action. Use read_extension, inspect_page, or clear_origin.");
+}
+
 async function toolDownloads({ limit = 20, query = "" } = {}) {
   const searchQuery = { limit: Math.min(limit, 100) };
   if (query) searchQuery.query = [query];
@@ -1378,9 +1423,17 @@ async function toolRecentlyClosed({ maxResults = 10 } = {}) {
 }
 
 async function toolRestoreSession({ sessionId }) {
-  if (!sessionId) throw new Error("sessionId is required — get one from browser_recently_closed");
+  if (!sessionId) throw new Error("sessionId is required — get one from browser_session with action:recent");
   const session = await chrome.sessions.restore(sessionId);
   return JSON.stringify({ restored: true, type: session.tab ? "tab" : "window" });
+}
+
+async function toolSession({ action = "save", ...args } = {}) {
+  if (action === "save") return await toolSessionSave(args);
+  if (action === "restore_saved") return await toolSessionRestore(args);
+  if (action === "recent") return await toolRecentlyClosed(args);
+  if (action === "restore_recent") return await toolRestoreSession(args);
+  throw new Error("Invalid action. Use save, restore_saved, recent, or restore_recent.");
 }
 
 async function toolTopSites() {
@@ -1720,6 +1773,18 @@ async function toolQueryAccessibility({ role, name, tabId } = {}) {
   });
 }
 
+async function toolInspect({ action = "dom", ...args } = {}) {
+  if (action === "version") return await toolGetVersion(args);
+  await assertTabAllowed(args.tabId ?? null);
+  if (action === "dom") return await toolGetDom(args);
+  if (action === "security") return await toolGetSecurityState(args);
+  if (action === "styles") return await toolGetComputedStyles(args);
+  if (action === "issues") return await toolGetPageIssues(args);
+  if (action === "accessibility") return await toolQueryAccessibility(args);
+  if (action === "element") return await toolGetElementInfo(args);
+  throw new Error("Invalid action. Use dom, version, security, styles, issues, accessibility, or element.");
+}
+
 async function toolSetSitePermission({ url, setting, value } = {}) {
   const VALID_SETTINGS = ["javascript","cookies","images","popups","geolocation","notifications","camera","microphone","automaticDownloads"];
   const VALID_VALUES = ["allow","block","ask","default","session_only"];
@@ -1899,6 +1964,30 @@ async function toolDeleteCookies({ tabId, name, domain, url } = {}) {
   });
 }
 
+async function toolCookies({ action = "get", ...args } = {}) {
+  if (action === "get") {
+    await assertTabAllowed(args.tabId ?? null);
+    return await toolGetCookies(args);
+  }
+  if (action === "get_all") {
+    const tabId = await _getAnyTabId(args.tabId);
+    await assertTabAllowed(tabId);
+    return await toolGetAllCookies({ ...args, tabId });
+  }
+  if (action === "set") {
+    const tabId = await _getAnyTabId(args.tabId);
+    await assertTabAllowed(tabId);
+    return await toolSetCookie({ ...args, tabId });
+  }
+  if (action === "delete") {
+    const tabId = await _getAnyTabId(args.tabId);
+    await assertTabAllowed(tabId);
+    if (args.url) await assertUrlAllowed(args.url);
+    return await toolDeleteCookies({ ...args, tabId });
+  }
+  throw new Error("Invalid action. Use get, get_all, set, or delete.");
+}
+
 const NETWORK_PRESETS = {
   offline:   { offline: true,  latency: 0,    downloadThroughput: 0,               uploadThroughput: 0 },
   'slow-2g': { offline: false, latency: 2000, downloadThroughput: 50*1024/8,       uploadThroughput: 50*1024/8 },
@@ -1985,6 +2074,16 @@ async function toolBlockUrls({ tabId, patterns, reset } = {}) {
     if (reset) return 'URL blocking cleared';
     return `Blocking ${urls.length} URL pattern(s)${urls.length ? ': ' + urls.slice(0, 3).join(', ') + (urls.length > 3 ? '…' : '') : ''}. Note: applies to requests while debugger is attached.`;
   });
+}
+
+async function toolEmulation({ action = "device", ...args } = {}) {
+  await assertTabAllowed(args.tabId ?? null);
+  if (action === "device") return await toolDeviceEmulate(args);
+  if (action === "network") return await toolNetworkConditions(args);
+  if (action === "geolocation") return await toolGeolocation(args);
+  if (action === "user_agent") return await toolUserAgent(args);
+  if (action === "block_urls") return await toolBlockUrls(args);
+  throw new Error("Invalid action. Use device, network, geolocation, user_agent, or block_urls.");
 }
 
 async function toolGetElementInfo({ selector, tabId } = {}) {

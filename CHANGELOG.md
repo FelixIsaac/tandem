@@ -16,7 +16,7 @@
 **Safety**
 - `browser_deduplicate_tabs` now defaults to `dryRun:true`; closing requires `dryRun:false` and `close:true`
 - `browser_deduplicate_tabs` supports `windowId`, `tabIds`, and `includePinned`
-- `browser_session_save` supports `windowId`, `tabIds`, and skips blocklisted URLs unless `includeSensitive:true`
+- `browser_session(action:"save")` supports `windowId`, `tabIds`, and skips blocklisted URLs unless `includeSensitive:true`
 - `browser_batch_execute` is now marked destructive/open-world in MCP annotations
 - Explicit-tab screenshots restore the previously active tab/window after capture
 - Full-page screenshots use CDP `Page.captureScreenshot` when `fullPage:true`
@@ -25,6 +25,8 @@
 **Tool Surface**
 - Consolidated Reading List tools into `browser_reading_list(action)`
 - Consolidated page watch/idle tools into `browser_watch_page(action)`
+- Consolidated similar browser clusters into action tools: `browser_history`, `browser_tab_group`, `browser_session`, `browser_storage`, `browser_inspect`, `browser_cookies`, and `browser_emulation`
+- Public MCP surface reduced from 82 to 59 tools
 - Added `npm run audit:mcp` to detect README/tool/schema drift
 
 ### Changed
