@@ -11,6 +11,7 @@
     "src/",
     "extension/",
     ".opencode/",
+    ".codex/",
     "AGENTS.md",
     "CLAUDE.md",
     "CHANGELOG.md",
@@ -23,7 +24,8 @@
   "scripts": {
     "start": "node src/server.js",
     "install-extension": "node bin/cli.js install",
-    "prepublishOnly": "node --check src/server.js && node --check src/host.js && node --check bin/cli.js",
+    "prepublishOnly": "node --check src/server.js && node --check src/host.js && node --check bin/cli.js && npm run audit:mcp",
+    "audit:mcp": "node scripts/audit-mcp-surface.mjs",
     "gen-icons": "node scripts/gen-icons.mjs"
   },
   "devDependencies": {

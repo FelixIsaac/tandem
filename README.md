@@ -22,7 +22,41 @@ The installer:
 1. Copies the extension to `~/.tandem/extension/`
 2. Opens Chrome so you can load the unpacked extension
 3. Registers the native messaging host (registry on Windows, `NativeMessagingHosts` on macOS/Linux)
-4. Optionally updates your agent config file
+4. Installs runtime agent guides and skills under `~/.tandem/`
+5. Optionally updates your agent config file
+
+## First-Time Setup
+
+1. Run the installer:
+
+   ```bash
+   npx @felixisaac/tandem install
+   ```
+
+2. Load the Chrome extension when prompted:
+   - Open `chrome://extensions`
+   - Enable **Developer mode**
+   - Click **Load unpacked**
+   - Select `~/.tandem/extension`
+   - Copy the extension ID back into the installer
+
+3. Let the installer configure your agent, or add the MCP server manually:
+
+   ```bash
+   node ~/.tandem/server.js
+   ```
+
+4. Restart your agent so it reconnects to MCP.
+
+5. Verify the server is visible:
+   - Tools should include `browser_snapshot`, `browser_get_tabs`, and `browser_open_tab`
+   - Resources should include `tandem://agents-guide`
+   - Prompts should include `tandem_usage_guide`
+
+6. First browser task:
+   - Read `tandem://agents-guide` if your client exposes resources
+   - Call `browser_snapshot` before acting on a page
+   - Use agent-owned tabs, preferably via `browser_open_tab`
 
 ## Agent Setup
 
@@ -207,6 +241,8 @@ args = ["~/.tandem/server.js"]
 |------|-------------|
 | `browser_session_save` | Save all open tabs as a named session to Chrome storage |
 | `browser_session_restore` | Restore a saved session (opens all saved URLs) |
+| `browser_recently_closed` | List recently closed tabs/windows |
+| `browser_restore_session` | Restore a recently closed tab/window by session ID |
 
 ### History & Bookmarks
 | Tool | Description |
@@ -222,6 +258,26 @@ args = ["~/.tandem/server.js"]
 | `browser_downloads` | List recent Chrome downloads |
 | `browser_notify` | Send a Chrome desktop notification (supports buttons) |
 | `browser_storage_read` | Read Chrome extension storage (local or sync) |
+| `browser_clear_browsing_data` | Clear selected browsing data types |
+| `browser_save_mhtml` | Save a tab as MHTML |
+| `browser_console_logs` | Capture console logs briefly |
+| `browser_get_dom` | Return DOM document data via CDP |
+| `browser_get_version` | Return browser/CDP version |
+| `browser_clear_storage` | Clear origin storage data |
+| `browser_find_tabs` | Find open tabs by URL/title/window/group |
+| `browser_watch_page` | Start/stop page watching or query idle state |
+| `browser_get_security_state` | Read page security state |
+| `browser_list_fonts` | List browser fonts |
+| `browser_list_extensions` | List installed extensions |
+| `browser_get_computed_styles` | Read computed styles for an element |
+| `browser_get_page_issues` | Read page issues via CDP |
+| `browser_query_accessibility` | Query accessibility tree by role/name |
+| `browser_set_site_permission` | Set a site permission |
+| `browser_wait_for_navigation` | Wait for navigation events |
+| `browser_batch_execute` | Run one JS snippet across selected tabs |
+| `browser_top_sites` | List top visited sites |
+| `browser_system_info` | Read CPU/memory/display info |
+| `browser_speak` | Speak text with Chrome TTS |
 
 ### Cookie Management
 | Tool | Description |
@@ -230,6 +286,11 @@ args = ["~/.tandem/server.js"]
 | `browser_get_all_cookies` | Get all browser cookies (optional domain filter) |
 | `browser_set_cookie` | Set a cookie with full control over flags and expiry |
 | `browser_delete_cookies` | Delete cookies by name, domain, or URL |
+
+### Reading List
+| Tool | Description |
+|------|-------------|
+| `browser_reading_list` | Get, add, or remove reading-list entries |
 
 ### Network & Emulation
 | Tool | Description |
@@ -245,6 +306,19 @@ args = ["~/.tandem/server.js"]
 | URI | Description |
 |-----|-------------|
 | `tandem://agents-guide` | Full `AGENTS.md` behavioral guide — fetch via `resources/read` for runtime agent context |
+| `tandem://skill-guide` | Client skill instructions where available |
+| `tandem://security-model` | Security boundaries and high-risk tool guidance |
+| `tandem://tool-map` | Current tool list and selection guidance |
+| `tandem://workflows/tab-management` | Safe tab cleanup and organization workflow |
+
+## MCP Prompts
+
+| Prompt | Description |
+|--------|-------------|
+| `tandem_usage_guide` | Load Tandem's core usage, safety, and workflow rules |
+| `safe_tab_cleanup` | Plan scoped tab cleanup with dry-run first |
+| `inspect_page` | Inspect a page with snapshot-first workflow |
+| `extract_open_tabs` | Extract data from selected open tabs safely |
 
 ## Per-tab Ownership
 
@@ -280,7 +354,7 @@ Multiple agents can share one browser session simultaneously.
 
 The agent acts as **you** inside your real Chrome session. The trust boundary is the **URL space**, not the JS the agent runs.
 
-- **URL blocklist** — banking, email, OAuth, password managers, crypto blocked by default. Extend via `~/.tandem/blocklist.txt` (one regex per line, `#` for comments). The host pushes updates to the extension on reconnect.
+- **URL blocklist** — banking, email, OAuth, password managers, crypto blocked by default for content-touching tab tools. Browser-wide metadata tools can still reveal tab titles/URLs. Extend via `~/.tandem/blocklist.txt` (one regex per line, `#` for comments). The host pushes updates to the extension on reconnect.
 - **Socket auth** — 256-bit token rotated on every host start. Server reads token fresh on each connect.
 - **Prompt injection** — agents are instructed never to act on instructions in page content (see [AGENTS.md](./AGENTS.md#security)). This remains an unsolved problem industry-wide; the URL blocklist is your safety net.
 - **`browser_execute`** — runs arbitrary JS as you via `chrome.debugger`. No content filter (regex blocklists are trivially bypassable); 50KB result cap as DoS guard. Don't run untrusted agents.

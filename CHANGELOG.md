@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+**MCP Agent Context**
+- Added MCP prompts: `tandem_usage_guide`, `safe_tab_cleanup`, `inspect_page`, `extract_open_tabs`
+- Added MCP resources: `tandem://skill-guide`, `tandem://security-model`, `tandem://tool-map`, `tandem://workflows/tab-management`
+- Added Codex skill at `.codex/skills/tandem/SKILL.md`
+- Installer now copies `AGENTS.md`, `CLAUDE.md`, `.opencode/`, and `.codex/` into `~/.tandem/`
+
+**Safety**
+- `browser_deduplicate_tabs` now defaults to `dryRun:true`; closing requires `dryRun:false` and `close:true`
+- `browser_deduplicate_tabs` supports `windowId`, `tabIds`, and `includePinned`
+- `browser_session_save` supports `windowId`, `tabIds`, and skips blocklisted URLs unless `includeSensitive:true`
+- `browser_batch_execute` is now marked destructive/open-world in MCP annotations
+
+**Tool Surface**
+- Consolidated Reading List tools into `browser_reading_list(action)`
+- Consolidated page watch/idle tools into `browser_watch_page(action)`
+- Added `npm run audit:mcp` to detect README/tool/schema drift
+
+### Changed
+
+- README now includes first-time setup, MCP prompts/resources, and updated tool docs
+- Agent docs now clarify that browser-wide metadata tools may still expose tab titles/URLs even when content-touching tools are blocklisted
+
 ## 1.5.0 — 2026-05-16
 
 ### Added

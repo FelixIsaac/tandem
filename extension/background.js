@@ -176,7 +176,7 @@ async function handleToolRequest(request) {
 
   try {
     // Block tools that touch tab content if the target URL is sensitive
-    const tablessTools = new Set(["get_tabs", "wait", "new_tab", "close_tab", "switch_tab", "new_window", "search_history", "recent_browsing", "history_stats", "get_bookmarks", "get_tab_groups", "create_tab_group", "update_tab_group", "move_to_group", "deduplicate_tabs", "open_batch", "session_save", "session_restore", "notify", "storage_read", "downloads", "recently_closed", "restore_session", "top_sites", "reading_list_get", "reading_list_add", "reading_list_remove", "system_info", "speak", "clear_browsing_data", "save_mhtml", "get_version", "find_tabs", "watch_page_stop", "watch_idle", "list_fonts", "list_extensions", "set_site_permission", "wait_for_navigation", "invalidate_cache", "batch_execute"]);
+    const tablessTools = new Set(["get_tabs", "wait", "new_tab", "close_tab", "switch_tab", "new_window", "search_history", "recent_browsing", "history_stats", "get_bookmarks", "get_tab_groups", "create_tab_group", "update_tab_group", "move_to_group", "deduplicate_tabs", "open_batch", "session_save", "session_restore", "notify", "storage_read", "downloads", "recently_closed", "restore_session", "top_sites", "reading_list", "reading_list_get", "reading_list_add", "reading_list_remove", "system_info", "speak", "clear_browsing_data", "save_mhtml", "get_version", "find_tabs", "watch_page", "watch_page_stop", "watch_idle", "list_fonts", "list_extensions", "set_site_permission", "wait_for_navigation", "invalidate_cache", "batch_execute"]);
     if (!tablessTools.has(tool)) {
       await assertTabAllowed(args?.tabId ?? null);
     }
@@ -235,6 +235,7 @@ const TOOL_HANDLERS = {
   recently_closed:      toolRecentlyClosed,
   restore_session:      toolRestoreSession,
   top_sites:            toolTopSites,
+  reading_list:         toolReadingList,
   reading_list_get:     toolReadingListGet,
   reading_list_add:     toolReadingListAdd,
   reading_list_remove:  toolReadingListRemove,
@@ -248,6 +249,7 @@ const TOOL_HANDLERS = {
   get_version:          toolGetVersion,
   clear_storage:        toolClearStorage,
   find_tabs:            toolFindTabs,
+  watch_page:           toolWatchPage,
   watch_page_start:     toolWatchPageStart,
   watch_page_stop:      toolWatchPageStop,
   watch_idle:           toolWatchIdle,
@@ -1128,8 +1130,14 @@ async function toolPageText({ tabId, maxLength = 20000 } = {}) {
   return text.length === maxLength ? text + `\n[truncated at ${maxLength} chars]` : text;
 }
 
-async function toolDeduplicateTabs({ dryRun = false } = {}) {
-  const tabs = await chrome.tabs.query({});
+async function toolDeduplicateTabs({ dryRun = true, close = false, windowId, tabIds, includePinned = false } = {}) {
+  const allTabs = await chrome.tabs.query(windowId ? { windowId } : {});
+  const selectedIds = Array.isArray(tabIds) ? new Set(tabIds.map(Number)) : null;
+  const tabs = allTabs.filter(tab => {
+    if (selectedIds && !selectedIds.has(tab.id)) return false;
+    if (!includePinned && tab.pinned) return false;
+    return true;
+  });
   const seen = new Map();
   const toClose = [];
   for (const tab of tabs) {
@@ -1141,8 +1149,16 @@ async function toolDeduplicateTabs({ dryRun = false } = {}) {
       seen.set(key, tab.id);
     }
   }
-  if (!dryRun && toClose.length) await chrome.tabs.remove(toClose.map(t => t.id));
-  return JSON.stringify({ duplicatesFound: toClose.length, closed: !dryRun && toClose.length > 0, tabs: toClose });
+  const shouldClose = close === true && dryRun === false;
+  if (shouldClose && toClose.length) await chrome.tabs.remove(toClose.map(t => t.id));
+  return JSON.stringify({
+    duplicatesFound: toClose.length,
+    closed: shouldClose && toClose.length > 0,
+    dryRun,
+    close,
+    scope: { windowId: windowId ?? null, tabIds: selectedIds ? [...selectedIds] : null, includePinned },
+    tabs: toClose
+  });
 }
 
 async function toolOpenBatch({ urls, active = false } = {}) {
@@ -1180,15 +1196,35 @@ async function toolStorageInspect({ tabId, store = "local" } = {}) {
 // Session Management
 // ============================================================================
 
-async function toolSessionSave({ name = "default" } = {}) {
-  const tabs = await chrome.tabs.query({});
-  const session = tabs
-    .filter(t => t.url && !["about:blank", "chrome://newtab/", ""].includes(t.url))
-    .map(t => ({ url: t.url, title: t.title, pinned: t.pinned }));
+async function toolSessionSave({ name = "default", windowId, tabIds, includeSensitive = false } = {}) {
+  const allTabs = await chrome.tabs.query(windowId ? { windowId } : {});
+  const selectedIds = Array.isArray(tabIds) ? new Set(tabIds.map(Number)) : null;
+  const skipped = [];
+  const session = [];
+  for (const t of allTabs) {
+    if (selectedIds && !selectedIds.has(t.id)) continue;
+    if (!t.url || ["about:blank", "chrome://newtab/", ""].includes(t.url)) continue;
+    if (!includeSensitive) {
+      try {
+        await assertUrlAllowed(t.url);
+      } catch (e) {
+        skipped.push({ id: t.id, title: t.title, reason: e.message });
+        continue;
+      }
+    }
+    session.push({ url: t.url, title: t.title, pinned: t.pinned });
+  }
   const key = `session_${name}`;
   const savedAt = new Date().toISOString();
   await chrome.storage.local.set({ [key]: { tabs: session, savedAt } });
-  return JSON.stringify({ name, tabCount: session.length, savedAt });
+  return JSON.stringify({
+    name,
+    tabCount: session.length,
+    skippedCount: skipped.length,
+    skipped,
+    savedAt,
+    scope: { windowId: windowId ?? null, tabIds: selectedIds ? [...selectedIds] : null, includeSensitive }
+  });
 }
 
 async function toolSessionRestore({ name = "default", newWindow = false } = {}) {
@@ -1285,6 +1321,13 @@ async function toolTopSites() {
 async function toolReadingListGet() {
   const items = await chrome.readingList.query({});
   return JSON.stringify(items);
+}
+
+async function toolReadingList({ action = "get", url, title } = {}) {
+  if (action === "get") return await toolReadingListGet();
+  if (action === "add") return await toolReadingListAdd({ url, title });
+  if (action === "remove") return await toolReadingListRemove({ url });
+  throw new Error("Invalid action. Use get, add, or remove.");
 }
 
 async function toolReadingListAdd({ url, title }) {
@@ -1455,6 +1498,13 @@ async function toolWatchPageStop({ tabId } = {}) {
   delete watchers[tabId];
   await chrome.storage.session.set({ pageWatchers: watchers });
   return `Stopped watching tab ${tabId}`;
+}
+
+async function toolWatchPage({ action = "idle", tabId, intervalSeconds, notifyTitle, detectionIntervalSeconds, idleAction } = {}) {
+  if (action === "start") return await toolWatchPageStart({ tabId, intervalSeconds, notifyTitle });
+  if (action === "stop") return await toolWatchPageStop({ tabId });
+  if (action === "idle") return await toolWatchIdle({ detectionIntervalSeconds, action: idleAction || "query" });
+  throw new Error("Invalid action. Use start, stop, or idle.");
 }
 
 // Page watcher alarm handler — separate from keepalive handler

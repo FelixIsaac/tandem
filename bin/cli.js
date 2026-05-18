@@ -51,6 +51,29 @@ function header(msg) {
   console.log(color("cyan", "─".repeat(msg.length)));
 }
 
+function copyDirSafe(srcDir, destDir) {
+  if (!existsSync(srcDir)) return;
+  mkdirSync(destDir, { recursive: true });
+  const safeRoot = resolve(destDir) + sep;
+  for (const file of readdirSync(srcDir, { recursive: true })) {
+    const srcPath = join(srcDir, file);
+    const destPath = join(destDir, file);
+    if (!resolve(destPath).startsWith(safeRoot)) {
+      throw new Error(`Refusing to write outside install dir: ${destPath}`);
+    }
+    if (lstatSync(srcPath).isSymbolicLink()) {
+      warn(`Skipping symlink in package: ${file}`);
+      continue;
+    }
+    if (statSync(srcPath).isDirectory()) {
+      mkdirSync(destPath, { recursive: true });
+    } else {
+      mkdirSync(dirname(destPath), { recursive: true });
+      copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
 const rl = createInterface({
   input: process.stdin,
   output: process.stdout,
@@ -386,6 +409,10 @@ To load the extension:
   const installedHostPath = join(wrapperDir, "host.js");
   copyFileSync(join(PACKAGE_ROOT, "src", "server.js"), installedServerPath);
   copyFileSync(join(PACKAGE_ROOT, "src", "host.js"), installedHostPath);
+  copyFileSync(join(PACKAGE_ROOT, "AGENTS.md"), join(wrapperDir, "AGENTS.md"));
+  copyFileSync(join(PACKAGE_ROOT, "CLAUDE.md"), join(wrapperDir, "CLAUDE.md"));
+  copyDirSafe(join(PACKAGE_ROOT, ".opencode"), join(wrapperDir, ".opencode"));
+  copyDirSafe(join(PACKAGE_ROOT, ".codex"), join(wrapperDir, ".codex"));
 
   // Write package.json with deps so `npm install` below resolves them
   const rootPkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8"));
