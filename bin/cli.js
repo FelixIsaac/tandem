@@ -15,6 +15,38 @@ import { execSync } from "child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PACKAGE_ROOT = join(__dirname, "..");
+const NATIVE_HOST_NAME = "com.tandem.browser";
+
+const BROWSERS = [
+  {
+    id: "chrome",
+    name: "Google Chrome",
+    windowsRegKey: `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+    macDir: ["Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts"],
+    linuxDir: [".config", "google-chrome", "NativeMessagingHosts"],
+  },
+  {
+    id: "edge",
+    name: "Microsoft Edge",
+    windowsRegKey: `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+    macDir: ["Library", "Application Support", "Microsoft Edge", "NativeMessagingHosts"],
+    linuxDir: [".config", "microsoft-edge", "NativeMessagingHosts"],
+  },
+  {
+    id: "brave",
+    name: "Brave",
+    windowsRegKey: `HKCU\\Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+    macDir: ["Library", "Application Support", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts"],
+    linuxDir: [".config", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts"],
+  },
+  {
+    id: "vivaldi",
+    name: "Vivaldi",
+    windowsRegKey: `HKCU\\Software\\Vivaldi\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`,
+    macDir: ["Library", "Application Support", "Vivaldi", "NativeMessagingHosts"],
+    linuxDir: [".config", "vivaldi", "NativeMessagingHosts"],
+  },
+];
 
 const COLORS = {
   reset: "\x1b[0m",
@@ -127,6 +159,60 @@ function appendCodexToml(path, serverPath) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, block.trimStart());
   }
+}
+
+function nativeManifestPathFor(browser, currentPlatform, wrapperDir) {
+  if (currentPlatform === "win32") return join(wrapperDir, `${browser.id}.${NATIVE_HOST_NAME}.json`);
+  const parts = currentPlatform === "darwin" ? browser.macDir : browser.linuxDir;
+  return join(homedir(), ...parts, `${NATIVE_HOST_NAME}.json`);
+}
+
+function registerNativeHostForBrowser(browser, currentPlatform, manifest, wrapperDir) {
+  const manifestPath = nativeManifestPathFor(browser, currentPlatform, wrapperDir);
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  if (currentPlatform === "win32") {
+    execSync(`REG ADD "${browser.windowsRegKey}" /ve /t REG_SZ /d "${manifestPath}" /f`, { stdio: "ignore", shell: true });
+  }
+  return manifestPath;
+}
+
+function isNativeHostRegistered(browser, currentPlatform) {
+  if (currentPlatform === "win32") {
+    try { execSync(`REG QUERY "${browser.windowsRegKey}" /ve`, { stdio: "ignore", shell: true }); return true; }
+    catch { return false; }
+  }
+  return existsSync(nativeManifestPathFor(browser, currentPlatform, join(homedir(), ".tandem")));
+}
+
+function detectInstalledBrowsers(currentPlatform) {
+  if (currentPlatform === "win32") {
+    return BROWSERS.filter(browser => {
+      const names = {
+        chrome: ["chrome.exe"],
+        edge: ["msedge.exe"],
+        brave: ["brave.exe"],
+        vivaldi: ["vivaldi.exe"],
+      }[browser.id];
+      return names.some(commandExists);
+    });
+  }
+  if (currentPlatform === "darwin") {
+    const apps = {
+      chrome: "/Applications/Google Chrome.app",
+      edge: "/Applications/Microsoft Edge.app",
+      brave: "/Applications/Brave Browser.app",
+      vivaldi: "/Applications/Vivaldi.app",
+    };
+    return BROWSERS.filter(browser => existsSync(apps[browser.id]));
+  }
+  const commands = {
+    chrome: ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"],
+    edge: ["microsoft-edge", "microsoft-edge-stable"],
+    brave: ["brave-browser", "brave"],
+    vivaldi: ["vivaldi", "vivaldi-stable"],
+  };
+  return BROWSERS.filter(browser => commands[browser.id].some(commandExists));
 }
 
 async function autoConfigureAgents(serverPath) {
@@ -243,12 +329,15 @@ ${color("cyan", color("bright", "╚══════════════�
 
   if (command === "install") {
     await install();
+  } else if (command === "doctor") {
+    await doctor();
   } else if (command === "uninstall") {
     await uninstall();
   } else {
     log(`
 ${color("bright", "Usage:")}
   npx @felixisaac/tandem install     Install extension and native host
+  npx @felixisaac/tandem doctor      Diagnose local setup
   npx @felixisaac/tandem uninstall   Remove native host registration
 
 ${color("bright", "After installation:")}
@@ -375,29 +464,24 @@ To load the extension:
   }
 
   const manifest = {
-    name: "com.tandem.browser",
+    name: NATIVE_HOST_NAME,
     description: "Tandem Browser Automation Native Messaging Host",
     path: wrapperPath,
     type: "stdio",
     allowed_origins: [`chrome-extension://${extensionId}/`],
   };
 
-  if (currentPlatform === "win32") {
-    // On Windows, manifest lives anywhere; Chrome finds it via registry
-    const manifestPath = join(wrapperDir, "com.tandem.browser.json");
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-    const regKey = "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.tandem.browser";
-    execSync(`REG ADD "${regKey}" /ve /t REG_SZ /d "${manifestPath}" /f`, { stdio: "ignore", shell: true });
-    success(`Native host manifest: ${manifestPath}`);
-    success(`Registry key written: ${regKey}`);
-  } else {
-    const nativeHostDir = currentPlatform === "darwin"
-      ? join(homedir(), "Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts")
-      : join(homedir(), ".config", "google-chrome", "NativeMessagingHosts");
-    mkdirSync(nativeHostDir, { recursive: true });
-    const manifestPath = join(nativeHostDir, "com.tandem.browser.json");
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-    success(`Native host registered at: ${manifestPath}`);
+  const installedBrowsers = detectInstalledBrowsers(currentPlatform);
+  const browsersToRegister = [];
+  const chrome = BROWSERS.find(b => b.id === "chrome");
+  browsersToRegister.push(chrome);
+  for (const browser of installedBrowsers.filter(b => b.id !== "chrome")) {
+    if (await confirm(`Register native host for ${browser.name}?`)) browsersToRegister.push(browser);
+  }
+
+  for (const browser of browsersToRegister) {
+    const manifestPath = registerNativeHostForBrowser(browser, currentPlatform, manifest, wrapperDir);
+    success(`${browser.name} native host: ${manifestPath}`);
   }
 
   const logsDir = join(homedir(), ".tandem", "logs");
@@ -511,28 +595,28 @@ async function uninstall() {
   const currentPlatform = platform();
 
   if (currentPlatform === "win32") {
-    const manifestPath = join(homedir(), ".tandem", "com.tandem.browser.json");
-    const regKey = "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.tandem.browser";
-    try {
-      execSync(`REG DELETE "${regKey}" /f`, { stdio: "ignore", shell: true });
-      success("Removed registry key");
-    } catch {
-      warn("Registry key not found");
-    }
-    if (existsSync(manifestPath)) {
-      unlinkSync(manifestPath);
-      success("Removed native host manifest");
+    for (const browser of BROWSERS) {
+      try {
+        execSync(`REG DELETE "${browser.windowsRegKey}" /f`, { stdio: "ignore", shell: true });
+        success(`Removed ${browser.name} registry key`);
+      } catch {
+        warn(`${browser.name} registry key not found`);
+      }
+      const manifestPath = nativeManifestPathFor(browser, currentPlatform, join(homedir(), ".tandem"));
+      if (existsSync(manifestPath)) {
+        unlinkSync(manifestPath);
+        success(`Removed ${browser.name} native host manifest`);
+      }
     }
   } else {
-    const nativeHostDir = currentPlatform === "darwin"
-      ? join(homedir(), "Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts")
-      : join(homedir(), ".config", "google-chrome", "NativeMessagingHosts");
-    const manifestPath = join(nativeHostDir, "com.tandem.browser.json");
-    if (existsSync(manifestPath)) {
-      unlinkSync(manifestPath);
-      success("Removed native host registration");
-    } else {
-      warn("Native host manifest not found");
+    for (const browser of BROWSERS) {
+      const manifestPath = nativeManifestPathFor(browser, currentPlatform, join(homedir(), ".tandem"));
+      if (existsSync(manifestPath)) {
+        unlinkSync(manifestPath);
+        success(`Removed ${browser.name} native host registration`);
+      } else {
+        warn(`${browser.name} native host manifest not found`);
+      }
     }
   }
 
@@ -544,6 +628,69 @@ Remove manually if needed:
 
 Also remove the "browser" MCP entry from your agent config.
 `);
+}
+
+async function doctor() {
+  header("Tandem Doctor");
+  const currentPlatform = platform();
+  const baseDir = join(homedir(), ".tandem");
+  const checks = [];
+  const add = (ok, label, detail = "") => checks.push({ ok, label, detail });
+
+  add(existsSync(baseDir), "~/.tandem exists", baseDir);
+  add(existsSync(join(baseDir, "server.js")), "server.js installed", join(baseDir, "server.js"));
+  add(existsSync(join(baseDir, "host.js")), "host.js installed", join(baseDir, "host.js"));
+  add(existsSync(join(baseDir, "AGENTS.md")), "AGENTS.md installed", join(baseDir, "AGENTS.md"));
+  add(existsSync(join(baseDir, ".codex", "skills", "tandem", "SKILL.md")), "Codex skill installed", join(baseDir, ".codex", "skills", "tandem", "SKILL.md"));
+  add(existsSync(join(baseDir, ".opencode", "skills", "tandem", "SKILL.md")), "OpenCode skill installed", join(baseDir, ".opencode", "skills", "tandem", "SKILL.md"));
+  add(existsSync(join(baseDir, "extension", "manifest.json")), "Extension files installed", join(baseDir, "extension"));
+  add(existsSync(join(baseDir, "package.json")), "Runtime package.json installed", join(baseDir, "package.json"));
+  add(existsSync(join(baseDir, "node_modules", "@modelcontextprotocol", "sdk")), "Runtime MCP SDK installed", join(baseDir, "node_modules"));
+  add(existsSync(join(baseDir, "auth.token")), "Auth token present", join(baseDir, "auth.token"));
+
+  if (existsSync(join(baseDir, "server.js"))) {
+    try {
+      execSync(`"${process.execPath}" --check "${join(baseDir, "server.js")}"`, { stdio: "pipe", shell: true });
+      add(true, "Installed server syntax OK");
+    } catch (e) {
+      add(false, "Installed server syntax failed", e.stderr?.toString()?.trim() || e.message);
+    }
+  }
+
+  const installedBrowsers = new Set(detectInstalledBrowsers(currentPlatform).map(browser => browser.id));
+  for (const browser of BROWSERS) {
+    const registered = isNativeHostRegistered(browser, currentPlatform);
+    if (registered || browser.id === "chrome" || installedBrowsers.has(browser.id)) {
+      add(registered, `${browser.name} native host registered`, nativeManifestPathFor(browser, currentPlatform, baseDir));
+    } else {
+      add(true, `${browser.name} not detected; native host optional`);
+    }
+  }
+
+  const codexConfig = join(homedir(), ".codex", "config.toml");
+  if (existsSync(codexConfig)) {
+    const text = readFileSync(codexConfig, "utf8");
+    add(text.includes("[mcp_servers.browser]") && text.includes("server.js"), "Codex MCP config present", codexConfig);
+  } else {
+    add(false, "Codex MCP config present", codexConfig);
+  }
+
+  let failed = 0;
+  for (const check of checks) {
+    if (check.ok) {
+      success(`${check.label}${check.detail ? ` — ${check.detail}` : ""}`);
+    } else {
+      failed++;
+      warn(`${check.label}${check.detail ? ` — ${check.detail}` : ""}`);
+    }
+  }
+
+  log("");
+  if (failed) {
+    warn(`${failed} check(s) need attention. Re-run: npx @felixisaac/tandem install`);
+  } else {
+    success("All checks passed.");
+  }
 }
 
 main().catch((e) => {

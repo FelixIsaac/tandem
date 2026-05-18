@@ -2,6 +2,48 @@
 // Native Messaging Host: com.tandem.browser
 
 const NATIVE_HOST_NAME = "com.tandem.browser";
+const CONTEXT_MENU_ID = "tandem-send-context";
+const CONTEXT_EVENT_LIMIT = 50;
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_ID,
+      title: "Send to Tandem",
+      contexts: ["page", "selection", "link", "image", "video", "audio", "editable"]
+    }, () => {
+      if (chrome.runtime.lastError) console.warn("[Tandem] context menu:", chrome.runtime.lastError.message);
+    });
+  });
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== CONTEXT_MENU_ID) return;
+  const event = {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    timestamp: new Date().toISOString(),
+    tabId: tab?.id ?? null,
+    windowId: tab?.windowId ?? null,
+    pageUrl: info.pageUrl || tab?.url || null,
+    title: tab?.title || null,
+    selectionText: info.selectionText || null,
+    linkUrl: info.linkUrl || null,
+    srcUrl: info.srcUrl || null,
+    mediaType: info.mediaType || null,
+    editable: info.editable || false,
+    frameId: info.frameId ?? null,
+    frameUrl: info.frameUrl || null
+  };
+  const { contextEvents = [] } = await chrome.storage.local.get("contextEvents");
+  contextEvents.unshift(event);
+  await chrome.storage.local.set({ contextEvents: contextEvents.slice(0, CONTEXT_EVENT_LIMIT) });
+  chrome.notifications.create("", {
+    type: "basic",
+    iconUrl: "icons/icon128.png",
+    title: "Sent to Tandem",
+    message: event.selectionText ? event.selectionText.slice(0, 80) : (event.linkUrl || event.pageUrl || "Context captured")
+  }, () => {});
+});
 
 // ============================================================================
 // URL Security Blocklist
@@ -176,7 +218,7 @@ async function handleToolRequest(request) {
 
   try {
     // Block tools that touch tab content if the target URL is sensitive
-    const tablessTools = new Set(["get_tabs", "wait", "new_tab", "close_tab", "switch_tab", "new_window", "search_history", "recent_browsing", "history_stats", "get_bookmarks", "get_tab_groups", "create_tab_group", "update_tab_group", "move_to_group", "deduplicate_tabs", "open_batch", "session_save", "session_restore", "notify", "storage_read", "downloads", "recently_closed", "restore_session", "top_sites", "reading_list", "reading_list_get", "reading_list_add", "reading_list_remove", "system_info", "speak", "clear_browsing_data", "save_mhtml", "get_version", "find_tabs", "watch_page", "watch_page_stop", "watch_idle", "list_fonts", "list_extensions", "set_site_permission", "wait_for_navigation", "invalidate_cache", "batch_execute"]);
+    const tablessTools = new Set(["get_tabs", "wait", "new_tab", "close_tab", "switch_tab", "new_window", "search_history", "recent_browsing", "history_stats", "get_bookmarks", "get_tab_groups", "create_tab_group", "update_tab_group", "move_to_group", "deduplicate_tabs", "open_batch", "session_save", "session_restore", "notify", "storage_read", "downloads", "recently_closed", "restore_session", "top_sites", "reading_list", "reading_list_get", "reading_list_add", "reading_list_remove", "system_info", "speak", "clear_browsing_data", "save_mhtml", "get_version", "find_tabs", "context_events", "watch_page", "watch_page_stop", "watch_idle", "list_fonts", "list_extensions", "set_site_permission", "wait_for_navigation", "invalidate_cache", "batch_execute"]);
     if (!tablessTools.has(tool)) {
       await assertTabAllowed(args?.tabId ?? null);
     }
@@ -249,6 +291,7 @@ const TOOL_HANDLERS = {
   get_version:          toolGetVersion,
   clear_storage:        toolClearStorage,
   find_tabs:            toolFindTabs,
+  context_events:       toolContextEvents,
   watch_page:           toolWatchPage,
   watch_page_start:     toolWatchPageStart,
   watch_page_stop:      toolWatchPageStop,
@@ -338,8 +381,15 @@ async function toolClick({ selector, tabId }) {
     func: (sel) => {
       const element = document.querySelector(sel);
       if (!element) return { success: false, error: `Element not found: ${sel}. Call browser_wait_for_selector('${sel}') to wait for it, or browser_snapshot to find the correct selector.` };
-      element.click();
-      return { success: true };
+      element.scrollIntoView({ block: "center", inline: "center" });
+      element.focus?.();
+      const rect = element.getBoundingClientRect();
+      const target = element.closest('[role="option"], [role="menuitem"], [role="button"], [role="combobox"], [aria-haspopup], button, a, input, textarea, select, [tabindex]') || element;
+      const opts = { bubbles: true, cancelable: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+        target.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, opts) : new MouseEvent(type, opts));
+      }
+      return { success: true, role: target.getAttribute("role") || target.tagName.toLowerCase() };
     },
     args: [selector]
   });
@@ -348,7 +398,7 @@ async function toolClick({ selector, tabId }) {
     throw new Error(result[0]?.result?.error || "Click failed — use browser_snapshot to inspect page state");
   }
 
-  return `Clicked ${selector}. If nothing happened, the element may be non-interactive — use browser_snapshot to verify page state.`;
+  return `Clicked ${selector}${result[0]?.result?.role ? ` (${result[0].result.role})` : ""}. If nothing happened, use browser_snapshot or browser_get_element_info to inspect page state.`;
 }
 
 async function toolType({ selector, text, tabId, clear = false }) {
@@ -397,6 +447,19 @@ async function toolScreenshot({ tabId, fullPage = false }) {
   if (tabId) {
     // Explicit tab — make it active in its own window (may be user's window, explicit request)
     const tab = await chrome.tabs.get(tabId);
+    if (fullPage) {
+      return await _withDebugger(tab.id, async (target) => {
+        const { contentSize } = await cdpSend(target, "Page.getLayoutMetrics");
+        const shot = await cdpSend(target, "Page.captureScreenshot", {
+          format: "png",
+          captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: contentSize.width, height: contentSize.height, scale: 1 }
+        });
+        return `data:image/png;base64,${shot.data}`;
+      });
+    }
+    const [previousActive] = await chrome.tabs.query({ windowId: tab.windowId, active: true });
+    const previousFocused = await chrome.windows.getLastFocused().catch(() => null);
     if (!tab.active) {
       await chrome.tabs.update(tab.id, { active: true });
       await new Promise(r => setTimeout(r, 150));
@@ -408,6 +471,13 @@ async function toolScreenshot({ tabId, fullPage = false }) {
         throw new Error(`Cannot screenshot: window is minimized. Restore it first, or use browser_snapshot instead (no window required).`);
       }
       throw err;
+    } finally {
+      if (previousActive?.id && previousActive.id !== tab.id) {
+        await chrome.tabs.update(previousActive.id, { active: true }).catch(() => {});
+      }
+      if (previousFocused?.id && previousFocused.id !== tab.windowId) {
+        await chrome.windows.update(previousFocused.id, { focused: true }).catch(() => {});
+      }
     }
   }
 
@@ -1477,6 +1547,13 @@ async function toolFindTabs({ query = "", matchUrl = true, matchTitle = true } =
       ...(matchTitle && t.title?.toLowerCase().includes(q) ? ["title"] : []),
     ],
   })));
+}
+
+async function toolContextEvents({ clear = false, limit = 20 } = {}) {
+  const { contextEvents = [] } = await chrome.storage.local.get("contextEvents");
+  const events = contextEvents.slice(0, Math.min(Math.max(limit, 1), CONTEXT_EVENT_LIMIT));
+  if (clear) await chrome.storage.local.set({ contextEvents: [] });
+  return JSON.stringify({ events, cleared: clear });
 }
 
 async function toolWatchPageStart({ tabId, intervalSeconds = 30, notifyTitle = "Page Changed" } = {}) {

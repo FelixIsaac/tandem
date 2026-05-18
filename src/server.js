@@ -104,6 +104,7 @@ const GENERIC_STRUCTURED_OUTPUT_TOOL_NAMES = new Set([
   "browser_get_dom",
   "browser_get_version",
   "browser_find_tabs",
+  "browser_context_events",
   "browser_watch_page",
   "browser_get_security_state",
   "browser_list_fonts",
@@ -948,6 +949,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
+      name: "browser_context_events",
+      description: "Read context-menu captures created by right-clicking a page/selection/link/image and choosing 'Send to Tandem'.",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      inputSchema: {
+        type: "object",
+        properties: {
+          clear: { type: "boolean", description: "Clear captured events after reading (default false)" },
+          limit: { type: "number", description: "Max events to return (default 20, max 50)" }
+        }
+      }
+    },
+    {
       name: "browser_watch_page",
       description: "Start/stop page-change watching or query idle state through one action tool.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -1338,6 +1351,7 @@ const STRUCTURED_OUTPUT_TOOLS = new Set([
   "browser_get_dom",
   "browser_get_version",
   "browser_find_tabs",
+  "browser_context_events",
   "browser_watch_page",
   "browser_get_security_state",
   "browser_list_fonts",
@@ -1410,6 +1424,7 @@ const TOOL_MAP = {
   browser_get_version:         "get_version",
   browser_clear_storage:       "clear_storage",
   browser_find_tabs:           "find_tabs",
+  browser_context_events:      "context_events",
   browser_watch_page:          "watch_page",
   browser_get_security_state:  "get_security_state",
   browser_list_fonts:          "list_fonts",

@@ -12,6 +12,21 @@ Browser automation for AI agents via Chrome extension + Native Messaging. Works 
 
 Chrome 136+ blocks `--remote-debugging-port` on your default profile. DevTools-based tools trigger a security prompt every time. This project uses Chrome's Native Messaging API — the same approach Anthropic uses for Claude in Chrome — so automation works silently against your live session.
 
+## Comparison
+
+Tandem is for agents that need a real local Chrome session without taking over the user's browsing. It uses a Chrome extension plus Native Messaging, exposes MCP tools/resources/prompts/skills, and keeps agent work in claimed tabs/windows so multiple agents can coexist. It is not as mature, packaged, or widely tested as larger browser automation stacks.
+
+| Project | Best fit | Compared with Tandem |
+|---------|----------|----------------------|
+| [Vercel Labs agent-browser](https://github.com/vercel-labs/agent-browser) | Polished agent browser CLI and skills | More mature distribution; Tandem focuses on the user's live Chrome via extension/native messaging and MCP context resources. |
+| [Vercel MCP](https://vercel.com/docs/ai-resources/vercel-mcp) / [Toolbar](https://vercel.com/docs/vercel-toolbar) | Vercel project/deployment workflows | Product-platform integration, not general local Chrome control. |
+| [opencode-browser](https://github.com/benjaminshafii/opencode-browser) | Upstream local Chrome MCP bridge | Tandem is a hardened fork with multi-agent tab claims, installer docs, resources, prompts, and broader tool coverage. |
+| [Scout](https://www.scout.i.ng/) | MCP + CDP browser automation platform | CDP-oriented automation; Tandem avoids remote-debugging-profile friction by using extension/native messaging. |
+| [BrowserMCP](https://www.browsermcp.app/) | Real Chrome control from AI tools | Similar local-browser goal; Tandem emphasizes non-interference, tab ownership, and bundled agent guidance. |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Test automation and reproducible browser control | Strong ecosystem and testing story; Tandem is better when the agent must share your existing Chrome session. |
+| [Browserbase / Stagehand](https://www.browserbase.com/stagehand/) | Production web agents, hosted browsers, AI actions | More mature cloud/SDK path; Tandem is local-first and relies on your Chrome profile/session. |
+| [Browser Use](https://github.com/browser-use/browser-use) | Python browser agents and task automation | Broader agent framework; Tandem is a lightweight MCP bridge for existing agent clients. |
+
 ## Installation
 
 ```bash
@@ -21,9 +36,15 @@ npx @felixisaac/tandem install
 The installer:
 1. Copies the extension to `~/.tandem/extension/`
 2. Opens Chrome so you can load the unpacked extension
-3. Registers the native messaging host (registry on Windows, `NativeMessagingHosts` on macOS/Linux)
+3. Registers the native messaging host for Chrome and optionally Edge, Brave, or Vivaldi
 4. Installs runtime agent guides and skills under `~/.tandem/`
 5. Optionally updates your agent config file
+
+Run diagnostics any time:
+
+```bash
+npx @felixisaac/tandem doctor
+```
 
 ## First-Time Setup
 
@@ -265,6 +286,7 @@ args = ["~/.tandem/server.js"]
 | `browser_get_version` | Return browser/CDP version |
 | `browser_clear_storage` | Clear origin storage data |
 | `browser_find_tabs` | Find open tabs by URL/title/window/group |
+| `browser_context_events` | Read right-click context captures from "Send to Tandem" |
 | `browser_watch_page` | Start/stop page watching or query idle state |
 | `browser_get_security_state` | Read page security state |
 | `browser_list_fonts` | List browser fonts |

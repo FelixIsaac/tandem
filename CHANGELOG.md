@@ -9,12 +9,18 @@
 - Added MCP resources: `tandem://skill-guide`, `tandem://security-model`, `tandem://tool-map`, `tandem://workflows/tab-management`
 - Added Codex skill at `.codex/skills/tandem/SKILL.md`
 - Installer now copies `AGENTS.md`, `CLAUDE.md`, `.opencode/`, and `.codex/` into `~/.tandem/`
+- Added `tandem doctor` diagnostics
+- Installer can register native messaging for Chrome, Edge, Brave, and Vivaldi
+- Added `browser_context_events` for right-click "Send to Tandem" context captures
 
 **Safety**
 - `browser_deduplicate_tabs` now defaults to `dryRun:true`; closing requires `dryRun:false` and `close:true`
 - `browser_deduplicate_tabs` supports `windowId`, `tabIds`, and `includePinned`
 - `browser_session_save` supports `windowId`, `tabIds`, and skips blocklisted URLs unless `includeSensitive:true`
 - `browser_batch_execute` is now marked destructive/open-world in MCP annotations
+- Explicit-tab screenshots restore the previously active tab/window after capture
+- Full-page screenshots use CDP `Page.captureScreenshot` when `fullPage:true`
+- `browser_click` dispatches pointer/mouse events for ARIA/custom listbox controls
 
 **Tool Surface**
 - Consolidated Reading List tools into `browser_reading_list(action)`
