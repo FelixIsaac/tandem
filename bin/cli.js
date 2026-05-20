@@ -491,7 +491,7 @@ To load the extension:
     writeFileSync(wrapperPath, `@echo off\r\n"${nodePath}" "${hostScriptPath}" %*\r\n`);
   } else {
     wrapperPath = join(wrapperDir, "host-wrapper.sh");
-    writeFileSync(wrapperPath, `#!/bin/bash\nexec "${nodePath}" "${hostScriptPath}" "$@"\n`, { mode: 0o755 });
+    writeFileSync(wrapperPath, `#!/usr/bin/env bash\nexec "${nodePath}" "${hostScriptPath}" "$@"\n`, { mode: 0o755 });
   }
 
   const manifest = {
