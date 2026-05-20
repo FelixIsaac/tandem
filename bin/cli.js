@@ -135,6 +135,37 @@ function commandExists(cmd) {
   } catch { return false; }
 }
 
+// Resolve the most stable node path available — prefers version-manager shims
+// (Volta, nvm) over process.execPath, which embeds a version number and breaks
+// on Node upgrades.
+function resolveStableNodePath() {
+  const isWin = platform() === "win32";
+  try {
+    const out = execSync(isWin ? "where node" : "which node", { stdio: "pipe", shell: true, timeout: 5000 });
+    const candidate = out.toString().trim().split(/\r?\n/)[0]?.trim();
+    if (candidate && existsSync(candidate)) return candidate;
+  } catch {}
+  if (isWin) {
+    // PowerShell resolves Volta/nvm shims even when CMD PATH differs
+    try {
+      const out = execSync(
+        `powershell -NoProfile -Command "(Get-Command node -ErrorAction SilentlyContinue).Source"`,
+        { stdio: "pipe", timeout: 8000 }
+      );
+      const candidate = out.toString().trim();
+      if (candidate && existsSync(candidate)) return candidate;
+    } catch {}
+    for (const c of [
+      process.env.VOLTA_HOME && join(process.env.VOLTA_HOME, "bin", "node.exe"),
+      process.env.NVM_SYMLINK && join(process.env.NVM_SYMLINK, "node.exe"),
+      "C:\\Program Files\\nodejs\\node.exe",
+    ].filter(Boolean)) {
+      if (existsSync(c)) return c;
+    }
+  }
+  return process.execPath;
+}
+
 function mergeJsonConfig(path, mutate) {
   let config = {};
   if (existsSync(path)) {
@@ -447,7 +478,7 @@ To load the extension:
 
   header("Step 4: Register Native Messaging Host");
 
-  const nodePath = process.execPath;
+  const nodePath = resolveStableNodePath();
   const wrapperDir = join(homedir(), ".tandem");
   mkdirSync(wrapperDir, { recursive: true });
   // Wrapper points to the installed host.js (copied below) — not the npx cache,
@@ -633,6 +664,7 @@ Also remove the "browser" MCP entry from your agent config.
 async function doctor() {
   header("Tandem Doctor");
   const currentPlatform = platform();
+  const isWin = currentPlatform === "win32";
   const baseDir = join(homedir(), ".tandem");
   const checks = [];
   const add = (ok, label, detail = "") => checks.push({ ok, label, detail });
@@ -648,6 +680,42 @@ async function doctor() {
   add(existsSync(join(baseDir, "node_modules", "@modelcontextprotocol", "sdk")), "Runtime MCP SDK installed", join(baseDir, "node_modules"));
   add(existsSync(join(baseDir, "auth.token")), "Auth token present", join(baseDir, "auth.token"));
 
+  // Check that the Node path baked into the host wrapper still resolves.
+  // This breaks when users switch Node version managers (Volta, nvm, fnm) or
+  // upgrade Node, because process.execPath embeds a version-specific path.
+  const wrapperFile = isWin
+    ? join(baseDir, "host-wrapper.cmd")
+    : join(baseDir, "host-wrapper.sh");
+  if (existsSync(wrapperFile)) {
+    const wrapperContent = readFileSync(wrapperFile, "utf8");
+    const nodePathMatch = isWin
+      ? wrapperContent.match(/"([^"]+node(?:\.exe)?)"/)
+      : wrapperContent.match(/exec "([^"]+node)"/);
+    const wrapperNodePath = nodePathMatch?.[1];
+    if (!wrapperNodePath) {
+      add(false, "Node path in host wrapper (could not parse)", wrapperFile);
+    } else if (!existsSync(wrapperNodePath)) {
+      log(color("yellow", `  ⚠ Node path in wrapper is stale: ${wrapperNodePath}`));
+      log("    Attempting auto-fix...");
+      try {
+        const fixedPath = resolveStableNodePath();
+        if (isWin) {
+          writeFileSync(wrapperFile, `@echo off\r\n"${fixedPath}" "${join(baseDir, "host.js")}" %*\r\n`);
+        } else {
+          writeFileSync(wrapperFile, `#!/bin/bash\nexec "${fixedPath}" "${join(baseDir, "host.js")}" "$@"\n`, { mode: 0o755 });
+        }
+        success(`  Auto-fixed Node path → ${fixedPath}`);
+        add(true, `Node path in host wrapper (auto-fixed)`, fixedPath);
+      } catch (e) {
+        add(false, `Node path in host wrapper — stale (${wrapperNodePath})`, e.message);
+      }
+    } else {
+      add(true, "Node path in host wrapper", wrapperNodePath);
+    }
+  } else {
+    add(false, "host-wrapper exists", wrapperFile);
+  }
+
   if (existsSync(join(baseDir, "server.js"))) {
     try {
       execSync(`"${process.execPath}" --check "${join(baseDir, "server.js")}"`, { stdio: "pipe", shell: true });
@@ -661,9 +729,42 @@ async function doctor() {
   for (const browser of BROWSERS) {
     const registered = isNativeHostRegistered(browser, currentPlatform);
     if (registered || browser.id === "chrome" || installedBrowsers.has(browser.id)) {
-      add(registered, `${browser.name} native host registered`, nativeManifestPathFor(browser, currentPlatform, baseDir));
+      const manifestPath = nativeManifestPathFor(browser, currentPlatform, baseDir);
+      add(registered, `${browser.name} native host registered`, manifestPath);
+      // On Windows, also verify the registry value points to an existing file
+      if (isWin && registered) {
+        try {
+          const regOut = execSync(`REG QUERY "${browser.windowsRegKey}" /ve`, { stdio: "pipe", shell: true }).toString();
+          const regFileMatch = regOut.match(/REG_SZ\s+(.+)/);
+          const regFile = regFileMatch?.[1]?.trim();
+          if (regFile && !existsSync(regFile)) {
+            add(false, `${browser.name} registry target exists`, regFile);
+          }
+        } catch {}
+      }
     } else {
       add(true, `${browser.name} not detected; native host optional`);
+    }
+  }
+
+  // Show extension ID from installed manifest so user can verify it matches chrome://extensions
+  const nativeManifestFile = join(baseDir, `${NATIVE_HOST_NAME}.json`);
+  const fallbackManifest = join(baseDir, `chrome.${NATIVE_HOST_NAME}.json`);
+  const manifestToRead = existsSync(nativeManifestFile) ? nativeManifestFile : existsSync(fallbackManifest) ? fallbackManifest : null;
+  if (manifestToRead) {
+    try {
+      const manifest = JSON.parse(readFileSync(manifestToRead, "utf8"));
+      const origins = manifest.allowed_origins ?? [];
+      const idMatch = origins[0]?.match(/chrome-extension:\/\/([a-z]{32})\//);
+      const extId = idMatch?.[1];
+      if (extId) {
+        add(true, `Extension ID in manifest: ${extId}`);
+        log(color("yellow", `  ⚠ Verify this ID matches the Tandem extension in chrome://extensions`));
+      } else {
+        add(false, "Extension ID in manifest (not found or malformed)", manifestToRead);
+      }
+    } catch {
+      add(false, "Native messaging manifest (parse error)", manifestToRead);
     }
   }
 
@@ -689,7 +790,7 @@ async function doctor() {
   if (failed) {
     warn(`${failed} check(s) need attention. Re-run: npx @felixisaac/tandem install`);
   } else {
-    success("All checks passed.");
+    success("All checks passed. Try /mcp in Claude Code.");
   }
 }
 
