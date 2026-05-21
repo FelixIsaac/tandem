@@ -1180,15 +1180,24 @@ function cdpSend(target, method, params = {}) {
   );
 }
 
-async function toolPrintToPdf({ tabId, landscape = false, printBackground = true } = {}) {
+async function toolPrintToPdf({ tabId, landscape = false, printBackground = true, filename } = {}) {
   const tab = await getTabById(tabId);
-  const result = await _withDebugger(tab.id, async (target) => {
+  const { data, bytes } = await _withDebugger(tab.id, async (target) => {
     const { data } = await cdpSend(target, "Page.printToPDF", {
       landscape, printBackground, preferCSSPageSize: true,
     });
-    return { mimeType: "application/pdf", data, url: tab.url, title: tab.title };
+    return { data, bytes: Math.floor((data.length * 3) / 4) };
   });
-  return JSON.stringify(result);
+  // Save to disk to avoid Chrome native messaging 1MB cap on the response.
+  const safeTitle = (tab.title || "page").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
+  const outName = filename || `${safeTitle}.pdf`;
+  const downloadId = await new Promise((resolve, reject) => {
+    chrome.downloads.download(
+      { url: `data:application/pdf;base64,${data}`, filename: outName, saveAs: false },
+      (id) => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(id)
+    );
+  });
+  return JSON.stringify({ mimeType: "application/pdf", downloadId, filename: outName, bytes, url: tab.url, title: tab.title });
 }
 
 async function toolPerformance({ tabId } = {}) {

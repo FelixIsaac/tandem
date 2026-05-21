@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- `browser_print_to_pdf` no longer fails with `Connection closed` on pages whose rendered PDF exceeds ~1MB. Root cause: extension returned the base64 PDF inline over native messaging; extension→host messages are capped at 1MB, oversized responses kill the host process and drop the MCP pipe. Fix: write PDF to disk via `chrome.downloads.download()` with a `data:` URL and return only `{ downloadId, filename, bytes, url, title }` — response is ~200 bytes regardless of PDF size. Tool now accepts optional `filename` arg.
+
 ### Added
 
 **MCP Agent Context**
