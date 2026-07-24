@@ -1,61 +1,66 @@
 {
-  "name": "@felixisaac/tandem",
-  "version": "1.5.0",
-  "description": "Browser automation for AI agents via Chrome extension + Native Messaging. Works with OpenCode, Claude Code, and any MCP-compatible agent.",
-  "type": "module",
-  "bin": {
-    "tandem": "./bin/cli.js"
-  },
-  "files": [
-    "bin/",
-    "src/",
-    "extension/",
-    ".opencode/",
-    ".codex/",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md"
-  ],
-  "engines": {
-    "node": ">=18"
-  },
-  "scripts": {
-    "start": "node src/server.js",
-    "install-extension": "node bin/cli.js install",
-    "prepublishOnly": "node --check src/server.js && node --check src/host.js && node --check bin/cli.js && npm run audit:mcp",
-    "audit:mcp": "node scripts/audit-mcp-surface.mjs",
-    "gen-icons": "node scripts/gen-icons.mjs"
-  },
-  "devDependencies": {
-    "@google/genai": "^1.50.1",
-    "sharp": "^0.33.5"
-  },
-  "keywords": [
-    "mcp",
-    "mcp-server",
-    "model-context-protocol",
-    "browser",
-    "automation",
-    "chrome",
-    "ai",
-    "llm",
-    "claude",
-    "opencode",
-    "agent"
-  ],
-  "author": "Felix Lim <limfelix16@gmail.com>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/felixisaac/tandem.git"
-  },
-  "bugs": {
-    "url": "https://github.com/felixisaac/tandem/issues"
-  },
-  "homepage": "https://github.com/felixisaac/tandem#readme",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "~1.29.0"
-  }
+    "name":  "@felixisaac/tandem",
+    "version":  "1.5.0",
+    "description":  "Browser automation for AI agents via Chrome extension + Native Messaging. Works with OpenCode, Claude Code, and any MCP-compatible agent.",
+    "type":  "module",
+    "bin":  {
+                "tandem":  "./bin/cli.js"
+            },
+    "files":  [
+                  "bin/",
+                  "src/",
+                  "extension/",
+                  ".opencode/",
+                  ".codex/",
+                  "AGENTS.md",
+                  "CLAUDE.md",
+                  "CHANGELOG.md",
+                  "LICENSE",
+                  "README.md"
+              ],
+    "engines":  {
+                    "node":  "\u003e=18"
+                },
+    "scripts":  {
+                    "start":  "node src/server.js",
+                    "install-extension":  "node bin/cli.js install",
+                    "prepublishOnly":  "node --check src/server.js \u0026\u0026 node --check src/host.js \u0026\u0026 node --check bin/cli.js \u0026\u0026 npm run audit:mcp",
+                    "audit:mcp":  "node scripts/audit-mcp-surface.mjs",
+                    "gen-icons":  "node scripts/gen-icons.mjs"
+                },
+    "devDependencies":  {
+                            "@google/genai":  "^1.50.1",
+                            "sharp":  "^0.33.5"
+                        },
+    "keywords":  [
+                     "mcp",
+                     "mcp-server",
+                     "model-context-protocol",
+                     "browser",
+                     "automation",
+                     "chrome",
+                     "ai",
+                     "llm",
+                     "claude",
+                     "opencode",
+                     "agent"
+                 ],
+    "author":  "Felix Lim \u003climfelix16@gmail.com\u003e",
+    "license":  "MIT",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/felixisaac/tandem.git"
+                   },
+    "bugs":  {
+                 "url":  "https://github.com/felixisaac/tandem/issues"
+             },
+    "homepage":  "https://github.com/felixisaac/tandem#readme",
+    "dependencies":  {
+                         "@modelcontextprotocol/sdk":  "~1.29.0"
+                     },
+    "pnpm":  {
+                 "onlyBuiltDependencies":  [
+                                               "sharp"
+                                           ]
+             }
 }
